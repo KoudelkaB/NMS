@@ -1,0 +1,25 @@
+{
+	"flutter": {
+		"platforms": {
+			"android": {
+				"default": {
+					"projectId": "nms-dev-koudelkab",
+					"appId": "1:769568338259:android:360aad776752667945f1a6",
+					"fileOutput": "android/app/google-services.json"
+				}
+			},
+			"dart": {
+				"lib/firebase_options.dart": {
+					"projectId": "nms-dev-koudelkab",
+					"configurations": {
+						"android": "1:769568338259:android:360aad776752667945f1a6",
+						"web": "1:769568338259:web:2489f6cdb1831d1445f1a6"
+					}
+				}
+			}
+		}
+	},
+	"firestore": {
+		"rules": "firestore.rules"
+	}
+}

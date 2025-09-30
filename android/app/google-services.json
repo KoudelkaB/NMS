@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "769568338259",
+    "project_id": "nms-dev-koudelkab",
+    "storage_bucket": "nms-dev-koudelkab.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:769568338259:android:360aad776752667945f1a6",
+        "android_client_info": {
+          "package_name": "com.example.nms"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBb9RF9U-pztksOao-dU1H4hwg0gC13EH0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
