@@ -44,4 +44,5 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
-build/test_cache/build/210bad4901163cba762d02a4a1c86c00.cache.dill.track.dill
+build/test_cache/build
+.flutter-plugins-dependencies
