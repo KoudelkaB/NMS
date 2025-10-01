@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../../../core/utils/date_time_utils.dart';
 import '../../auth/data/app_user.dart';
 import 'time_slot.dart';
 
@@ -23,19 +24,36 @@ class CalendarRepository {
   }
 
   Stream<List<TimeSlot>> watchUserAssignments(String uid, {DateTime? from}) {
-    Query<Map<String, dynamic>> query =
-        _slotsCollection.where('participantIds', arrayContains: uid);
-    if (from != null) {
-        query = query.where(
-          'start',
-          isGreaterThanOrEqualTo: Timestamp.fromDate(from),
-        );
-    }
+    // Note: array-contains with orderBy requires a composite index in Firestore
+    // To avoid this, we only use array-contains and do filtering + sorting in memory
 
-    return query
-        .orderBy('start')
+    // Only load slots that haven't ended yet to minimize Firestore reads
+    // Slots end 30 minutes after start, so we filter by 'end' field
+    // final now = DateTimeUtils.nowInPrague;
+
+    return _slotsCollection
+        .where('participantIds', arrayContains: uid)
+        // .where('end', isGreaterThan: Timestamp.fromDate(now)) // needs index on end which we do not have yet
+
         .snapshots()
-        .map((snapshot) => snapshot.docs.map(TimeSlot.fromDoc).toList());
+        .map((snapshot) {
+      var slots = snapshot.docs.map(TimeSlot.fromDoc).toList();
+
+      // Filter by date in memory if needed
+      if (from != null) {
+        slots = slots
+            .where(
+              (slot) =>
+                  slot.start.isAfter(from) || slot.start.isAtSameMomentAs(from),
+            )
+            .toList();
+      }
+
+      // Sort by start time in memory
+      slots.sort((a, b) => a.start.compareTo(b.start));
+
+      return slots;
+    });
   }
 
   Future<void> toggleSlot({
@@ -44,13 +62,19 @@ class CalendarRepository {
     bool weeklyRecurring = false,
     int recurringWeeks = 12,
   }) async {
-      final normalizedStart = DateTime(
-        start.year,
-        start.month,
-        start.day,
-        start.hour,
-        start.minute,
-      ); // local time is OK
+    final normalizedStart = DateTime(
+      start.year,
+      start.month,
+      start.day,
+      start.hour,
+      start.minute,
+    ); // local time is OK
+
+    // Check if the slot has already ended (30 min after start)
+    final slotEnd = normalizedStart.add(const Duration(minutes: 30));
+    if (slotEnd.isBefore(DateTimeUtils.nowInPrague)) {
+      throw StateError('Nelze upravovat časy, které již proběhly');
+    }
 
     await _firestore.runTransaction((transaction) async {
       final operations = <_TransactionCommand>[];
@@ -163,8 +187,7 @@ class CalendarRepository {
             'start': Timestamp.fromDate(slot.start),
             'end': Timestamp.fromDate(slot.end),
             'capacity': slot.capacity,
-            'participants':
-                updatedParticipants.map((p) => p.toMap()).toList(),
+            'participants': updatedParticipants.map((p) => p.toMap()).toList(),
             'participantIds': updatedParticipants.map((p) => p.uid).toList(),
             'updatedAt': FieldValue.serverTimestamp(),
           },

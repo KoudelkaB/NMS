@@ -1,7 +1,9 @@
 import 'dart:async';
 
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/foundation.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 
+import '../../../core/utils/date_time_utils.dart';
 import '../../auth/application/auth_providers.dart';
 import '../../auth/data/app_user.dart';
 import '../data/calendar_repository.dart';
@@ -12,6 +14,21 @@ final calendarRepositoryProvider = Provider<CalendarRepository>((ref) {
   return CalendarRepository(firestore);
 });
 
+// Cache invalidation trigger for time slots
+final timeSlotsInvalidatorProvider =
+    NotifierProvider<TimeSlotsInvalidatorNotifier, int>(
+  TimeSlotsInvalidatorNotifier.new,
+);
+
+class TimeSlotsInvalidatorNotifier extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void invalidate() {
+    state++;
+  }
+}
+
 final calendarFocusDayProvider =
     NotifierProvider<CalendarFocusDayNotifier, DateTime>(
   CalendarFocusDayNotifier.new,
@@ -20,7 +37,7 @@ final calendarFocusDayProvider =
 class CalendarFocusDayNotifier extends Notifier<DateTime> {
   @override
   DateTime build() {
-    final now = DateTime.now();
+    final now = DateTimeUtils.nowInPrague;
     return DateTime(now.year, now.month, now.day);
   }
 
@@ -34,7 +51,22 @@ final calendarWeekStartProvider = Provider<DateTime>((ref) {
   return focusDay.subtract(Duration(days: focusDay.weekday - 1));
 });
 
-final daySlotsProvider = StreamProvider<List<TimeSlot>>((ref) {
+final daySlotsProvider = StreamProvider.autoDispose<List<TimeSlot>>((ref) {
+  // Keep alive for better caching
+  final link = ref.keepAlive();
+  // Dispose after 5 minutes of inactivity
+  Timer? timer;
+  ref.onDispose(() => timer?.cancel());
+  ref.onCancel(() {
+    timer = Timer(const Duration(minutes: 5), link.close);
+  });
+  ref.onResume(() {
+    timer?.cancel();
+  });
+
+  // Watch invalidator to force refresh when needed
+  ref.watch(timeSlotsInvalidatorProvider);
+
   final focusDay = ref.watch(calendarFocusDayProvider);
   final repository = ref.watch(calendarRepositoryProvider);
   final startOfDay = DateTime(focusDay.year, focusDay.month, focusDay.day);
@@ -53,30 +85,59 @@ final bookingActionProvider = Provider<BookingAction>((ref) {
   if (user == null) {
     throw StateError('User must be signed in to interact with calendar.');
   }
-  return BookingAction(repository: repository, user: user);
+  return BookingAction(
+    repository: repository,
+    user: user,
+    onSlotChanged: () {
+      // Invalidate cache when slot is changed
+      ref.read(timeSlotsInvalidatorProvider.notifier).invalidate();
+    },
+  );
 });
 
-final userAssignmentsProvider = StreamProvider<List<TimeSlot>>((ref) {
-  final user = ref.watch(currentAppUserProvider);
-  if (user == null) {
-    return const Stream.empty();
-  }
+final userAssignmentsProvider =
+    StreamProvider.autoDispose.family<List<TimeSlot>, String>((ref, uid) {
+  // Keep alive for better caching
+  final link = ref.keepAlive();
+  // Dispose after 10 minutes of inactivity
+  Timer? timer;
+  ref.onDispose(() => timer?.cancel());
+  ref.onCancel(() {
+    timer = Timer(const Duration(minutes: 10), link.close);
+  });
+  ref.onResume(() {
+    timer?.cancel();
+  });
+
+  // Watch invalidator to force refresh when needed
+  ref.watch(timeSlotsInvalidatorProvider);
+
   final repository = ref.watch(calendarRepositoryProvider);
   final from = DateTime.now().subtract(const Duration(days: 1));
-  return repository.watchUserAssignments(user.uid, from: from);
+  return repository.watchUserAssignments(uid, from: from);
 });
 
 class BookingAction {
-  BookingAction({required this.repository, required this.user});
+  BookingAction({
+    required this.repository,
+    required this.user,
+    this.onSlotChanged,
+  });
 
   final CalendarRepository repository;
   final AppUser user;
+  final VoidCallback? onSlotChanged;
 
-  Future<void> toggleSlot(DateTime start, {bool weeklyRecurring = false}) {
-    return repository.toggleSlot(
+  Future<void> toggleSlot(
+    DateTime start, {
+    bool weeklyRecurring = false,
+  }) async {
+    await repository.toggleSlot(
       user: user,
       start: start,
       weeklyRecurring: weeklyRecurring,
     );
+    // Notify that slot has changed
+    onSlotChanged?.call();
   }
 }

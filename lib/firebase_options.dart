@@ -77,5 +77,4 @@ class DefaultFirebaseOptions {
     authDomain: 'nms-dev-koudelkab.firebaseapp.com',
     storageBucket: 'nms-dev-koudelkab.firebasestorage.app',
   );
-
 }

@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:equatable/equatable.dart';
 
+import '../../../core/utils/date_time_utils.dart';
+
 class ParticipantSummary extends Equatable {
   const ParticipantSummary({
     required this.uid,
@@ -55,6 +57,8 @@ class TimeSlot extends Equatable {
 
   bool get isFull => participants.length >= capacity;
 
+  bool get isPast => end.isBefore(DateTimeUtils.nowInPrague);
+
   bool containsUser(String uid) =>
       participants.any((participant) => participant.uid == uid);
 
@@ -103,7 +107,8 @@ class TimeSlot extends Equatable {
       id: doc.id,
       start: timestamp?.toDate() ?? DateTime.now(),
       end: endTimestamp?.toDate() ??
-          (timestamp?.toDate() ?? DateTime.now()).add(const Duration(minutes: 30)),
+          (timestamp?.toDate() ?? DateTime.now())
+              .add(const Duration(minutes: 30)),
       capacity: (data['capacity'] as num?)?.toInt() ?? 10,
       participants: participants,
       participantIds: participantIds.isEmpty

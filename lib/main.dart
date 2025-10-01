@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:timezone/data/latest_all.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
 
 import 'app.dart';
 import 'firebase_options.dart';
@@ -19,21 +21,34 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 }
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  Intl.defaultLocale = 'cs_CZ';
-  await initializeDateFormatting('cs_CZ');
-  await NotificationService.initialize();
-  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-  await _configureMessaging();
-
-  FlutterError.onError = (details) {
-    FlutterError.presentError(details);
-  };
-
   runZonedGuarded(
-    () => runApp(const ProviderScope(child: NmsApp())),
+    () async {
+      WidgetsFlutterBinding.ensureInitialized();
+
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+
+      // Set timezone to Czech Republic
+      tz.initializeTimeZones();
+      tz.setLocalLocation(tz.getLocation('Europe/Prague'));
+
+      // Set locale to Czech
+      Intl.defaultLocale = 'cs_CZ';
+      await initializeDateFormatting('cs_CZ');
+
+      await NotificationService.initialize();
+      FirebaseMessaging.onBackgroundMessage(
+        _firebaseMessagingBackgroundHandler,
+      );
+      await _configureMessaging();
+
+      FlutterError.onError = (details) {
+        FlutterError.presentError(details);
+      };
+
+      runApp(const ProviderScope(child: NmsApp()));
+    },
     (error, stackTrace) => debugPrint('Uncaught error: $error\n$stackTrace'),
   );
 }

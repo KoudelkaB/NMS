@@ -23,18 +23,23 @@ class TimeSlotTile extends StatelessWidget {
     final hasExtra = names.length > 3;
     final displayNames = names.take(3).join(', ');
     final timeFormat = DateFormat('HH:mm');
-    final backgroundColor = highlighted
-        ? Theme.of(context).colorScheme.secondaryContainer
-        : null;
-    final borderColor = isMine
-        ? Theme.of(context).colorScheme.primary
-        : Colors.transparent;
+    final isPast = slot.isPast;
+
+    final backgroundColor = isPast
+        ? Theme.of(context).colorScheme.surfaceContainerHighest
+        : (highlighted
+            ? Theme.of(context).colorScheme.secondaryContainer
+            : null);
+    final borderColor =
+        isMine ? Theme.of(context).colorScheme.primary : Colors.transparent;
 
     final tooltip = names.isEmpty ? null : names.join('\n');
     Widget child = InkWell(
       borderRadius: BorderRadius.circular(16),
-      onTap: onTap,
-      child: Padding(
+      onTap: isPast ? null : onTap, // Disable tap for past slots
+      child: Opacity(
+        opacity: isPast ? 0.5 : 1.0, // Make past slots semi-transparent
+        child: Padding(
           padding: const EdgeInsets.all(16),
           child: Row(
             children: [
@@ -43,7 +48,10 @@ class TimeSlotTile extends StatelessWidget {
                 children: [
                   Text(
                     '${timeFormat.format(slot.start)} - ${timeFormat.format(slot.end)}',
-                    style: Theme.of(context).textTheme.titleMedium,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          decoration:
+                              isPast ? TextDecoration.lineThrough : null,
+                        ),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -54,15 +62,27 @@ class TimeSlotTile extends StatelessWidget {
                             : displayNames,
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
-                  if (isMine)
+                  if (isPast)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        'Proběhlý čas',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurface
+                                  .withValues(alpha: 0.6),
+                            ),
+                      ),
+                    ),
+                  if (isMine && !isPast)
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
                       child: Text(
                         'Jste přihlášeni v tomto čase',
-                        style: Theme.of(context)
-                            .textTheme
-                            .labelSmall
-                            ?.copyWith(color: Theme.of(context).colorScheme.primary),
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
                       ),
                     ),
                 ],
@@ -82,6 +102,7 @@ class TimeSlotTile extends StatelessWidget {
             ],
           ),
         ),
+      ),
     );
 
     if (tooltip != null) {

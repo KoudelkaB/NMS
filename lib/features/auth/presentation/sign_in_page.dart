@@ -88,7 +88,8 @@ class SignInPage extends HookConsumerWidget {
                             ? const SizedBox(
                                 height: 20,
                                 width: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
                               )
                             : const Text('Přihlásit se'),
                       ),
@@ -121,7 +122,9 @@ class SignInPage extends HookConsumerWidget {
                         const SizedBox(height: 12),
                         Text(
                           authState.error.toString(),
-                          style: TextStyle(color: Theme.of(context).colorScheme.error),
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
                           textAlign: TextAlign.center,
                         ),
                       ],

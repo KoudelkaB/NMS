@@ -75,7 +75,9 @@ class RegisterPage extends HookConsumerWidget {
                                     errorMaxLines: 2,
                                   ),
                                   validator: AppValidators.validateFirstName,
-                                  autofillHints: const [AutofillHints.givenName],
+                                  autofillHints: const [
+                                    AutofillHints.givenName,
+                                  ],
                                 ),
                               ),
                               SizedBox(
@@ -88,7 +90,9 @@ class RegisterPage extends HookConsumerWidget {
                                     errorMaxLines: 2,
                                   ),
                                   validator: AppValidators.validateLastName,
-                                  autofillHints: const [AutofillHints.familyName],
+                                  autofillHints: const [
+                                    AutofillHints.familyName,
+                                  ],
                                 ),
                               ),
                             ],
@@ -131,7 +135,8 @@ class RegisterPage extends HookConsumerWidget {
                       TextFormField(
                         controller: communityController,
                         decoration: const InputDecoration(
-                          labelText: 'Církev / farnost / křesťanské společenství',
+                          labelText:
+                              'Církev / farnost / křesťanské společenství',
                           errorMaxLines: 2,
                         ),
                         validator: AppValidators.validateRequired,
@@ -194,18 +199,21 @@ class RegisterPage extends HookConsumerWidget {
                                     .register(
                                       email: emailController.text.trim(),
                                       password: passwordController.text.trim(),
-                                      firstName: firstNameController.text.trim(),
+                                      firstName:
+                                          firstNameController.text.trim(),
                                       lastName: lastNameController.text.trim(),
                                       phoneNumber: phoneController.text.trim(),
                                       location: locationController.text.trim(),
-                                      community: communityController.text.trim(),
+                                      community:
+                                          communityController.text.trim(),
                                     );
                               },
                         child: authState.isLoading
                             ? const SizedBox(
                                 height: 20,
                                 width: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
                               )
                             : const Text('Zaregistrovat se'),
                       ),
@@ -223,7 +231,9 @@ class RegisterPage extends HookConsumerWidget {
                         const SizedBox(height: 12),
                         Text(
                           authState.error.toString(),
-                          style: TextStyle(color: Theme.of(context).colorScheme.error),
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
                         ),
                       ],
                     ],

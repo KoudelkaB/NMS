@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
@@ -9,11 +10,13 @@ import 'app_user.dart';
 class AuthRepository {
   AuthRepository(
     this._auth,
-    this._firestore,
-  );
+    this._firestore, {
+    this.onUserUpdated,
+  });
 
   final FirebaseAuth _auth;
   final FirebaseFirestore _firestore;
+  final VoidCallback? onUserUpdated;
 
   static final GoogleSignIn _googleSignIn = GoogleSignIn.instance;
   static Future<void>? _googleSignInInitFuture;
@@ -148,7 +151,10 @@ class AuthRepository {
           profile.copyWith(updatedAt: updateAt).toMap(),
           SetOptions(merge: true),
         );
-    await _auth.currentUser?.updateDisplayName('${profile.firstName} ${profile.lastName}'.trim());
+    await _auth.currentUser
+        ?.updateDisplayName('${profile.firstName} ${profile.lastName}'.trim());
+    // Notify that user data has been updated
+    onUserUpdated?.call();
   }
 
   Future<void> sendEmailVerification() async {
@@ -170,6 +176,8 @@ class AuthRepository {
       },
       SetOptions(merge: true),
     );
+    // Notify that user data has been updated
+    onUserUpdated?.call();
   }
 
   Future<void> _ensureUserDocument(User? user) async {

@@ -37,7 +37,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         return isAuthRoute ? null : '/sign-in';
       }
 
-  if (currentUser.value == null) {
+      if (currentUser.value == null) {
         return state.uri.path == '/profile' ? null : '/profile';
       }
 

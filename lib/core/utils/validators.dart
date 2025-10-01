@@ -28,8 +28,7 @@ class AppValidators {
     if (value == null || value.trim().isEmpty) {
       return 'Zadejte prosím e-mail';
     }
-      const emailPattern =
-          r'^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$';
+    const emailPattern = r'^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$';
     final regExp = RegExp(emailPattern, caseSensitive: false);
     if (!regExp.hasMatch(value.trim())) {
       return 'E-mail musí obsahovat @ a platnou doménu';

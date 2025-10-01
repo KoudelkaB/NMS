@@ -27,6 +27,7 @@
         "intl",
         "json_annotation",
         "sign_in_with_apple",
+        "timezone",
         "url_launcher",
         "uuid"
       ],
@@ -138,6 +139,14 @@
         "stream_channel",
         "test_api",
         "vector_math"
+      ]
+    },
+    {
+      "name": "timezone",
+      "version": "0.10.1",
+      "dependencies": [
+        "http",
+        "path"
       ]
     },
     {
@@ -724,6 +733,16 @@
       ]
     },
     {
+      "name": "http",
+      "version": "1.5.0",
+      "dependencies": [
+        "async",
+        "http_parser",
+        "meta",
+        "web"
+      ]
+    },
+    {
       "name": "sign_in_with_apple_web",
       "version": "3.0.0",
       "dependencies": [
@@ -775,14 +794,6 @@
       "dependencies": [
         "flutter",
         "google_sign_in_platform_interface"
-      ]
-    },
-    {
-      "name": "timezone",
-      "version": "0.10.1",
-      "dependencies": [
-        "http",
-        "path"
       ]
     },
     {
@@ -1209,16 +1220,6 @@
       "version": "2.1.8",
       "dependencies": [
         "meta"
-      ]
-    },
-    {
-      "name": "http",
-      "version": "1.5.0",
-      "dependencies": [
-        "async",
-        "http_parser",
-        "meta",
-        "web"
       ]
     },
     {

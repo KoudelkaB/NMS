@@ -32,6 +32,7 @@ dependencies:
   flutter_local_notifications: ^19.4.2
   google_sign_in: ^7.2.0
   sign_in_with_apple: ^7.0.1
+  timezone: ^0.10.1
 
 dev_dependencies:
   flutter_test:

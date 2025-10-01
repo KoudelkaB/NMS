@@ -11,7 +11,7 @@ class AdminAnnouncementsPage extends HookConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-  final user = ref.watch(appUserProvider).value;
+    final user = ref.watch(appUserProvider).value;
     if (user?.isAdmin != true) {
       return Scaffold(
         appBar: AppBar(
