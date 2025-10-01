@@ -30,6 +30,7 @@ class CalendarPage extends HookConsumerWidget {
     final scrollTrigger =
         useState(0); // Used to force scroll even when already on today
     final lastFocusDay = useRef<DateTime?>(null);
+    final currentSlotContext = useRef<BuildContext?>(null);
 
     final selectedDate = focusDay;
     final now = DateTimeUtils.nowInPrague;
@@ -45,25 +46,27 @@ class CalendarPage extends HookConsumerWidget {
 
       void doScroll() {
         if (scrollController.hasClients) {
-          // Calculate the index we want to scroll to (showing current slot lower on screen)
-          final targetIndex = currentSlotIndex;
-
-          // Estimate average item height based on actual scroll extent
-          final maxScrollExtent = scrollController.position.maxScrollExtent;
-          final estimatedItemHeight = maxScrollExtent / 48; // 48 slots per day
-
-          final targetOffset = (targetIndex * estimatedItemHeight).clamp(
+          // First jump to approximate position to ensure the item is built
+          const estimatedItemHeight = 100.0;
+          final targetOffset = (currentSlotIndex * estimatedItemHeight).clamp(
             0.0,
-            maxScrollExtent,
+            scrollController.position.maxScrollExtent,
           );
+          scrollController.jumpTo(targetOffset);
 
-          scrollController.animateTo(
-            targetOffset,
-            duration: const Duration(milliseconds: 500),
-            curve: Curves.easeInOut,
-          );
-
-          lastScrolledSlotIndex.value = currentSlotIndex;
+          // Then in next frame, use ensureVisible with the correct context
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            final context = currentSlotContext.value;
+            if (context != null) {
+              Scrollable.ensureVisible(
+                context,
+                duration: const Duration(milliseconds: 500),
+                curve: Curves.easeInOut,
+                alignment: 0.0, // Scroll to top
+              );
+              lastScrolledSlotIndex.value = currentSlotIndex;
+            }
+          });
         }
       }
 
@@ -295,11 +298,18 @@ class CalendarPage extends HookConsumerWidget {
                     final highlight = isToday && index == currentSlotIndex;
                     final isMine =
                         appUser != null && slot.containsUser(appUser.uid);
-                    return TimeSlotTile(
-                      slot: slot,
-                      highlighted: highlight,
-                      isMine: isMine,
-                      onTap: () => _onSlotTapped(context, ref, slot),
+                    return Builder(
+                      builder: (tileContext) {
+                        if (highlight) {
+                          currentSlotContext.value = tileContext;
+                        }
+                        return TimeSlotTile(
+                          slot: slot,
+                          highlighted: highlight,
+                          isMine: isMine,
+                          onTap: () => _onSlotTapped(context, ref, slot),
+                        );
+                      },
                     );
                   },
                 );
