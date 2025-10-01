@@ -102,6 +102,36 @@ flutter test
 - **Web**: upload `firebase-messaging-sw.js` and update FCM web configs per Firebase documentation.
 - **Desktop**: enable Windows/Linux/macOS builds with `flutter config --enable-<platform>-desktop`.
 
+## Flatpak packaging
+
+The repository ships a Flatpak manifest (`org.nms.App.yml`) and desktop entry (`org.nms.App.desktop`) that build the Flutter Linux bundle, install icons, and register the launcher.
+
+1. Install the Freedesktop runtime and Flatpak tooling (one-time setup):
+
+   ```bash
+   flatpak install flathub org.freedesktop.Platform//23.08 org.freedesktop.Sdk//23.08
+   sudo apt install flatpak flatpak-builder
+   ```
+
+2. Build the app into a local Flatpak repository:
+
+   ```bash
+   flatpak-builder --repo=repo --force-clean build-dir org.nms.App.yml
+   ```
+
+3. (Optional) Export a single-file bundle for distribution:
+
+   ```bash
+   flatpak build-bundle repo nms.flatpak org.nms.App
+   ```
+
+4. Install and launch the app locally:
+
+   ```bash
+   flatpak install --user nms.flatpak
+   flatpak run org.nms.App
+   ```
+
 ## Next steps
 
 - Implement dedicated admin dashboard (web) for slot moderation.

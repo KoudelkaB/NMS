@@ -1,0 +1,47 @@
+app-id: org.nms.App
+runtime: org.freedesktop.Platform
+runtime-version: '23.08'
+sdk: org.freedesktop.Sdk
+command: nms
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=x11
+  - --socket=wayland
+  - --device=dri
+  - --filesystem=xdg-run/dconf
+  - --filesystem=~/.config/dconf:ro
+  - --talk-name=ca.desrt.dconf
+  - --env=DCONF_USER_CONFIG_DIR=.config/dconf
+modules:
+  - name: flutter
+    buildsystem: simple
+    build-commands:
+      - rm -rf /app/flutter
+      - install -d /app/bin /app/flutter
+      - cp -a . /app/flutter
+      - ln -sfn /app/flutter/bin/flutter /app/bin/flutter
+    sources:
+      - type: archive
+        url: https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.19.0-stable.tar.xz
+        sha256: 4cc1706fbd6e2a5c0ee34a6f8de875aae20904c9f47e18c88d2fcb25d9ea1a79
+  - name: nms
+    buildsystem: simple
+    build-commands:
+      - export PATH=/app/bin:$PATH
+      - flutter config --no-analytics --enable-linux-desktop
+      - flutter precache --linux
+      - flutter pub get
+      - flutter build linux --release
+      - install -d /app/bin
+      - cp -r build/linux/x64/release/bundle/* /app/
+      - ln -sfn /app/nms /app/bin/nms
+      - install -Dm644 org.nms.App.desktop /app/share/applications/org.nms.App.desktop
+      - install -Dm644 android/app/src/main/res/mipmap-mdpi/ic_launcher.png /app/share/icons/hicolor/48x48/apps/org.nms.App.png
+      - install -Dm644 android/app/src/main/res/mipmap-hdpi/ic_launcher.png /app/share/icons/hicolor/72x72/apps/org.nms.App.png
+      - install -Dm644 android/app/src/main/res/mipmap-xhdpi/ic_launcher.png /app/share/icons/hicolor/96x96/apps/org.nms.App.png
+      - install -Dm644 android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png /app/share/icons/hicolor/144x144/apps/org.nms.App.png
+      - install -Dm644 android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png /app/share/icons/hicolor/192x192/apps/org.nms.App.png
+    sources:
+      - type: dir
+        path: .

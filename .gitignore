@@ -46,3 +46,6 @@ app.*.map.json
 /android/app/release
 build/test_cache/build
 .flutter-plugins-dependencies
+
+# Flatpack related
+.flatpak-builder/

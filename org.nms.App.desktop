@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=NMS
+Comment=Shared half-hour prayer calendar with Firebase backend
+Exec=nms
+Icon=org.nms.App
+Type=Application
+Categories=Utility;
