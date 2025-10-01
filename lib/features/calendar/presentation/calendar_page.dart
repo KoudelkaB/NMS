@@ -43,7 +43,7 @@ class CalendarPage extends HookConsumerWidget {
     void scrollToCurrentSlot({bool immediate = false}) {
       if (!isToday || currentSlotIndex < 0) return;
 
-      final doScroll = () {
+      void doScroll() {
         if (scrollController.hasClients) {
           // Calculate the index we want to scroll to (showing current slot lower on screen)
           final targetIndex = currentSlotIndex;
@@ -65,7 +65,7 @@ class CalendarPage extends HookConsumerWidget {
 
           lastScrolledSlotIndex.value = currentSlotIndex;
         }
-      };
+      }
 
       if (immediate) {
         // For "Dnes" button when already on today - scroll immediately
@@ -275,7 +275,7 @@ class CalendarPage extends HookConsumerWidget {
                 final generatedSlots = _generateDaySlots(focusDay);
                 return ListView.builder(
                   key: PageStorageKey<String>(
-                      'calendar_list_${focusDay.toIso8601String()}'),
+                      'calendar_list_${focusDay.toIso8601String()}',),
                   controller: scrollController,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   itemCount: generatedSlots.length,

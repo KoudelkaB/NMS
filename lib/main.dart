@@ -38,9 +38,15 @@ Future<void> main() async {
       await initializeDateFormatting('cs_CZ');
 
       await NotificationService.initialize();
-      FirebaseMessaging.onBackgroundMessage(
-        _firebaseMessagingBackgroundHandler,
-      );
+      // Register background handler only on mobile platforms where it's
+      // supported by the plugin.
+      if (!kIsWeb &&
+          (defaultTargetPlatform == TargetPlatform.android ||
+              defaultTargetPlatform == TargetPlatform.iOS)) {
+        FirebaseMessaging.onBackgroundMessage(
+          _firebaseMessagingBackgroundHandler,
+        );
+      }
       await _configureMessaging();
 
       FlutterError.onError = (details) {
@@ -55,17 +61,31 @@ Future<void> main() async {
 
 Future<void> _configureMessaging() async {
   final messaging = FirebaseMessaging.instance;
-  if (!kIsWeb) {
+  // Request permissions and subscribe to topics only on Android/iOS. The
+  // firebase_messaging plugin does not expose topic subscription on desktop
+  // platforms (Windows/macOS/Linux) nor web in the same way.
+  if (!kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS)) {
     await messaging.requestPermission(
       alert: true,
       badge: true,
       sound: true,
     );
+
+    await messaging.subscribeToTopic('announcements');
   }
 
-  await messaging.subscribeToTopic('announcements');
-
+  // Listen for foreground messages on all platforms; the handler is a no-op
+  // on Windows to avoid using the Windows native notifications plugin.
   FirebaseMessaging.onMessage.listen(NotificationService.showRemoteMessage);
 
-  await messaging.getToken();
+  // Only request a token on mobile platforms and web where the plugin
+  // provides an implementation. Desktop platforms currently don't implement
+  // this method and will throw a MissingPluginException.
+  if (kIsWeb ||
+      defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS) {
+    await messaging.getToken();
+  }
 }

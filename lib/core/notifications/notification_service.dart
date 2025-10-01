@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
@@ -8,6 +10,11 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
 
   static Future<void> initialize() async {
+    // Avoid initializing the native Windows plugin due to occasional AOT/FFI
+    // snapshot errors seen in release builds. If Windows notifications are
+    // needed later, implement a Windows-specific path that is exercised and
+    // tested separately.
+    if (Platform.isWindows) return;
     const androidSettings =
         AndroidInitializationSettings('@mipmap/ic_launcher');
     const iOSSettings = DarwinInitializationSettings();
@@ -22,6 +29,13 @@ class NotificationService {
     final notification = message.notification;
     if (notification == null) return;
 
+    if (Platform.isWindows) {
+      // Skip showing a local notification via the Windows plugin to avoid
+      // triggering the FFI-related AOT crash. Implement a separate Windows
+      // notification flow if needed.
+      return;
+    }
+
     const androidDetails = AndroidNotificationDetails(
       'announcements_channel',
       'Oznámení administrátora',
@@ -30,11 +44,13 @@ class NotificationService {
       priority: Priority.high,
     );
 
-    const iOSDetails = DarwinNotificationDetails();
+    final iOSDetails = DarwinNotificationDetails();
+    final windowsDetails = WindowsNotificationDetails();
 
-    const details = NotificationDetails(
+    final details = NotificationDetails(
       android: androidDetails,
       iOS: iOSDetails,
+      windows: windowsDetails,
     );
 
     await _plugin.show(
