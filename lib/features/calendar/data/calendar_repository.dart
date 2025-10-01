@@ -151,6 +151,25 @@ class CalendarRepository {
       }
     }
 
+    if (weeklyRecurring && !firstResult.joined) {
+      for (var i = 1; i <= max(1, recurringWeeks); i++) {
+        final nextStart = normalizedStart.add(Duration(days: 7 * i));
+        final nextRef = _slotsCollection.doc(TimeSlot.buildId(nextStart));
+        final nextSnapshot = await nextRef.get();
+        final nextResult = _prepareToggleCommand(
+          docRef: nextRef,
+          snapshot: nextSnapshot,
+          user: user,
+          slotStart: nextStart,
+          shouldJoin: false,
+        );
+
+        if (nextResult.operation != null) {
+          operations.add(nextResult.operation!);
+        }
+      }
+    }
+
     if (defaultTargetPlatform == TargetPlatform.windows) {
       // On Windows, perform operations without transaction to avoid Firestore issues
       for (final op in operations) {

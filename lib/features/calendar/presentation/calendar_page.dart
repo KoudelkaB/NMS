@@ -201,11 +201,8 @@ class CalendarPage extends HookConsumerWidget {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          _CalendarWeekSelector(weekStart: weekStart, focusDay: focusDay),
-          if (firebaseUser != null && !firebaseUser.emailVerified)
-            Padding(
+      body: firebaseUser != null && !firebaseUser.emailVerified
+          ? Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Card(
                 color: Theme.of(context).colorScheme.errorContainer,
@@ -231,111 +228,116 @@ class CalendarPage extends HookConsumerWidget {
                   ),
                 ),
               ),
-            ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            )
+          : Column(
               children: [
-                Text(
-                  DateFormat('EEEE d. MMMM yyyy', 'cs_CZ').format(focusDay),
-                  style: Theme.of(context).textTheme.titleLarge,
+                _CalendarWeekSelector(weekStart: weekStart, focusDay: focusDay),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        DateFormat('EEEE d. MMMM yyyy', 'cs_CZ').format(focusDay),
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      Row(
+                        children: [
+                          IconButton(
+                            onPressed: () {
+                              final previousWeek = focusDay.subtract(
+                                const Duration(days: 7),
+                              );
+                              ref
+                                  .read(calendarFocusDayProvider.notifier)
+                                  .setFocusDay(previousWeek);
+                            },
+                            icon: const Icon(Icons.chevron_left),
+                          ),
+                          IconButton(
+                            onPressed: () {
+                              final nextWeek = focusDay.add(const Duration(days: 7));
+                              ref
+                                  .read(calendarFocusDayProvider.notifier)
+                                  .setFocusDay(nextWeek);
+                            },
+                            icon: const Icon(Icons.chevron_right),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-                Row(
-                  children: [
-                    IconButton(
-                      onPressed: () {
-                        final previousWeek = focusDay.subtract(
-                          const Duration(days: 7),
-                        );
-                        ref
-                            .read(calendarFocusDayProvider.notifier)
-                            .setFocusDay(previousWeek);
-                      },
-                      icon: const Icon(Icons.chevron_left),
-                    ),
-                    IconButton(
-                      onPressed: () {
-                        final nextWeek = focusDay.add(const Duration(days: 7));
-                        ref
-                            .read(calendarFocusDayProvider.notifier)
-                            .setFocusDay(nextWeek);
-                      },
-                      icon: const Icon(Icons.chevron_right),
-                    ),
-                  ],
+                Expanded(
+                  child: AsyncValueWidget<List<TimeSlot>>(
+                    value: daySlots,
+                    builder: (slots) {
+                      final timeSlotsById = {
+                        for (final slot in slots) slot.id: slot,
+                      };
+                      final generatedSlots = _generateDaySlots(focusDay);
+                      return ListView.builder(
+                        key: PageStorageKey<String>(
+                            'calendar_list_${focusDay.toIso8601String()}',),
+                        controller: scrollController,
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        itemCount: generatedSlots.length,
+                        itemBuilder: (context, index) {
+                          final slotStart = generatedSlots[index];
+                          final slotId = TimeSlot.buildId(slotStart);
+                          final slot = timeSlotsById[slotId] ??
+                              TimeSlot(
+                                id: slotId,
+                                start: slotStart,
+                                end: slotStart.add(const Duration(minutes: 30)),
+                                capacity: 10,
+                                participants: const [],
+                                participantIds: const [],
+                                updatedAt: DateTimeUtils.nowInPrague,
+                              );
+                          final highlight = isToday && index == currentSlotIndex;
+                          final isMine =
+                              appUser != null && slot.containsUser(appUser.uid);
+                          return Builder(
+                            builder: (tileContext) {
+                              if (highlight) {
+                                currentSlotContext.value = tileContext;
+                              }
+                              return TimeSlotTile(
+                                slot: slot,
+                                highlighted: highlight,
+                                isMine: isMine,
+                                onTap: () => _onSlotTapped(context, ref, slot),
+                              );
+                            },
+                          );
+                        },
+                      );
+                    },
+                  ),
                 ),
               ],
             ),
-          ),
-          Expanded(
-            child: AsyncValueWidget<List<TimeSlot>>(
-              value: daySlots,
-              builder: (slots) {
-                final timeSlotsById = {
-                  for (final slot in slots) slot.id: slot,
-                };
-                final generatedSlots = _generateDaySlots(focusDay);
-                return ListView.builder(
-                  key: PageStorageKey<String>(
-                      'calendar_list_${focusDay.toIso8601String()}',),
-                  controller: scrollController,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: generatedSlots.length,
-                  itemBuilder: (context, index) {
-                    final slotStart = generatedSlots[index];
-                    final slotId = TimeSlot.buildId(slotStart);
-                    final slot = timeSlotsById[slotId] ??
-                        TimeSlot(
-                          id: slotId,
-                          start: slotStart,
-                          end: slotStart.add(const Duration(minutes: 30)),
-                          capacity: 10,
-                          participants: const [],
-                          participantIds: const [],
-                          updatedAt: DateTimeUtils.nowInPrague,
-                        );
-                    final highlight = isToday && index == currentSlotIndex;
-                    final isMine =
-                        appUser != null && slot.containsUser(appUser.uid);
-                    return Builder(
-                      builder: (tileContext) {
-                        if (highlight) {
-                          currentSlotContext.value = tileContext;
-                        }
-                        return TimeSlotTile(
-                          slot: slot,
-                          highlighted: highlight,
-                          isMine: isMine,
-                          onTap: () => _onSlotTapped(context, ref, slot),
-                        );
-                      },
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          final wasAlreadyToday = isToday;
-          ref
-              .read(calendarFocusDayProvider.notifier)
-              .setFocusDay(DateTimeUtils.nowInPrague);
+      floatingActionButton: firebaseUser != null && firebaseUser.emailVerified
+          ? FloatingActionButton.extended(
+              onPressed: () {
+                final wasAlreadyToday = isToday;
+                ref
+                    .read(calendarFocusDayProvider.notifier)
+                    .setFocusDay(DateTimeUtils.nowInPrague);
 
-          if (wasAlreadyToday) {
-            // If already on today, scroll immediately
-            scrollToCurrentSlot(immediate: true);
-          } else {
-            // If switching from another day, increment trigger to force scroll
-            scrollTrigger.value++;
-          }
-        },
-        icon: const Icon(Icons.today),
-        label: const Text('Dnes'),
-      ),
+                if (wasAlreadyToday) {
+                  // If already on today, scroll immediately
+                  scrollToCurrentSlot(immediate: true);
+                } else {
+                  // If switching from another day, increment trigger to force scroll
+                  scrollTrigger.value++;
+                }
+              },
+              icon: const Icon(Icons.today),
+              label: const Text('Dnes'),
+            )
+          : null,
     );
   }
 
@@ -380,6 +382,18 @@ class CalendarPage extends HookConsumerWidget {
                         'Rezervace se vytvoří na dalších 12 týdnů',
                       ),
                     ),
+                  ] else ...[
+                    const SizedBox(height: 16),
+                    CheckboxListTile(
+                      value: recurring,
+                      onChanged: (value) {
+                        setState(() => recurring = value ?? false);
+                      },
+                      title: const Text('Zrušit všechny budoucí opakování'),
+                      subtitle: const Text(
+                        'Zruší se rezervace na dalších 12 týdnů',
+                      ),
+                    ),
                   ],
                 ],
               ),
@@ -406,14 +420,16 @@ class CalendarPage extends HookConsumerWidget {
     try {
       await bookingAction.toggleSlot(
         slot.start,
-        weeklyRecurring: !isAssigned && recurring,
+        weeklyRecurring: recurring,
       );
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             isAssigned
-                ? 'Účast byla zrušena.'
+                ? recurring
+                    ? 'Účast byla zrušena včetně všech budoucích opakování.'
+                    : 'Účast byla zrušena.'
                 : recurring
                     ? 'Byli jste přidáni do tohoto času i na dalších 12 týdnů.'
                     : 'Byli jste úspěšně přidáni do tohoto času.',

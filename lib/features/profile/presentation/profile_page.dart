@@ -14,6 +14,43 @@ class ProfilePage extends HookConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final firebaseUser = ref.watch(authStateProvider).value;
+
+    if (firebaseUser != null && !firebaseUser.emailVerified) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Můj profil'),
+        ),
+        body: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Card(
+            color: Theme.of(context).colorScheme.errorContainer,
+            child: ListTile(
+              leading: const Icon(Icons.mark_email_unread_outlined),
+              title: const Text('Prosíme, ověřte svůj e-mail'),
+              subtitle: const Text(
+                'Na váš e-mail jsme odeslali ověřovací zprávu. Bez ověření nemusíte dostávat důležité oznámení.',
+              ),
+              trailing: TextButton(
+                onPressed: () async {
+                  await ref
+                      .read(authRepositoryProvider)
+                      .sendEmailVerification();
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Ověřovací e-mail byl znovu odeslán.'),
+                    ),
+                  );
+                },
+                child: const Text('Znovu odeslat'),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     final appUserAsync = ref.watch(appUserProvider);
 
     return Scaffold(
