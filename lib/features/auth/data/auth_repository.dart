@@ -24,6 +24,10 @@ class AuthRepository {
   Stream<User?> authStateChanges() => _auth.authStateChanges();
 
   Stream<AppUser?> appUserStream(String uid) {
+    if (defaultTargetPlatform == TargetPlatform.windows) {
+      // Workaround for Windows threading issue with Firestore snapshots
+      return Stream.fromFuture(fetchUser(uid)).asBroadcastStream();
+    }
     return _firestore.collection('users').doc(uid).snapshots().map(
           (doc) => doc.exists ? AppUser.fromDoc(doc) : null,
         );

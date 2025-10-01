@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../../core/utils/date_time_utils.dart';
 import '../../auth/data/app_user.dart';
@@ -14,7 +15,42 @@ class CalendarRepository {
   CollectionReference<Map<String, dynamic>> get _slotsCollection =>
       _firestore.collection('timeSlots');
 
+  Future<List<TimeSlot>> _fetchUserAssignments(String uid, DateTime? from) async {
+    final snapshot = await _slotsCollection
+        .where('participantIds', arrayContains: uid)
+        .get();
+    var slots = snapshot.docs.map(TimeSlot.fromDoc).toList();
+
+    // Filter by date in memory if needed
+    if (from != null) {
+      slots = slots
+          .where(
+            (slot) =>
+                slot.start.isAfter(from) || slot.start.isAtSameMomentAs(from),
+          )
+          .toList();
+    }
+
+    // Sort by start time in memory
+    slots.sort((a, b) => a.start.compareTo(b.start));
+
+    return slots;
+  }
+
+  Future<List<TimeSlot>> _fetchSlots(DateTime from, DateTime to) async {
+    final snapshot = await _slotsCollection
+        .where('start', isGreaterThanOrEqualTo: Timestamp.fromDate(from))
+        .where('start', isLessThan: Timestamp.fromDate(to))
+        .orderBy('start')
+        .get();
+    return snapshot.docs.map(TimeSlot.fromDoc).toList();
+  }
+
   Stream<List<TimeSlot>> watchSlots(DateTime from, DateTime to) {
+    if (defaultTargetPlatform == TargetPlatform.windows) {
+      // Workaround for Windows threading issue with Firestore snapshots
+      return Stream.fromFuture(_fetchSlots(from, to)).asBroadcastStream();
+    }
     return _slotsCollection
         .where('start', isGreaterThanOrEqualTo: Timestamp.fromDate(from))
         .where('start', isLessThan: Timestamp.fromDate(to))
@@ -24,6 +60,10 @@ class CalendarRepository {
   }
 
   Stream<List<TimeSlot>> watchUserAssignments(String uid, {DateTime? from}) {
+    if (defaultTargetPlatform == TargetPlatform.windows) {
+      // Workaround for Windows threading issue with Firestore snapshots
+      return Stream.fromFuture(_fetchUserAssignments(uid, from)).asBroadcastStream();
+    }
     // Note: array-contains with orderBy requires a composite index in Firestore
     // To avoid this, we only use array-contains and do filtering + sorting in memory
 
@@ -76,46 +116,53 @@ class CalendarRepository {
       throw StateError('Nelze upravovat časy, které již proběhly');
     }
 
-    await _firestore.runTransaction((transaction) async {
-      final operations = <_TransactionCommand>[];
+    final operations = <_Operation>[];
 
-      final firstRef = _slotsCollection.doc(TimeSlot.buildId(normalizedStart));
-      final firstSnapshot = await transaction.get(firstRef);
-      final firstResult = _prepareToggleCommand(
-        docRef: firstRef,
-        snapshot: firstSnapshot,
-        user: user,
-        slotStart: normalizedStart,
-        shouldJoin: null,
-      );
+    final firstRef = _slotsCollection.doc(TimeSlot.buildId(normalizedStart));
+    final firstSnapshot = await firstRef.get();
+    final firstResult = _prepareToggleCommand(
+      docRef: firstRef,
+      snapshot: firstSnapshot,
+      user: user,
+      slotStart: normalizedStart,
+      shouldJoin: null,
+    );
 
-      if (firstResult.command != null) {
-        operations.add(firstResult.command!);
-      }
+    if (firstResult.operation != null) {
+      operations.add(firstResult.operation!);
+    }
 
-      if (weeklyRecurring && firstResult.joined) {
-        for (var i = 1; i <= max(1, recurringWeeks); i++) {
-          final nextStart = normalizedStart.add(Duration(days: 7 * i));
-          final nextRef = _slotsCollection.doc(TimeSlot.buildId(nextStart));
-          final nextSnapshot = await transaction.get(nextRef);
-          final nextResult = _prepareToggleCommand(
-            docRef: nextRef,
-            snapshot: nextSnapshot,
-            user: user,
-            slotStart: nextStart,
-            shouldJoin: true,
-          );
+    if (weeklyRecurring && firstResult.joined) {
+      for (var i = 1; i <= max(1, recurringWeeks); i++) {
+        final nextStart = normalizedStart.add(Duration(days: 7 * i));
+        final nextRef = _slotsCollection.doc(TimeSlot.buildId(nextStart));
+        final nextSnapshot = await nextRef.get();
+        final nextResult = _prepareToggleCommand(
+          docRef: nextRef,
+          snapshot: nextSnapshot,
+          user: user,
+          slotStart: nextStart,
+          shouldJoin: true,
+        );
 
-          if (nextResult.command != null) {
-            operations.add(nextResult.command!);
-          }
+        if (nextResult.operation != null) {
+          operations.add(nextResult.operation!);
         }
       }
+    }
 
-      for (final command in operations) {
-        command(transaction);
+    if (defaultTargetPlatform == TargetPlatform.windows) {
+      // On Windows, perform operations without transaction to avoid Firestore issues
+      for (final op in operations) {
+        await op.docRef.set(op.data, SetOptions(merge: true));
       }
-    });
+    } else {
+      await _firestore.runTransaction((transaction) async {
+        for (final op in operations) {
+          transaction.set(op.docRef, op.data, SetOptions(merge: true));
+        }
+      });
+    }
   }
 
   _ToggleComputation _prepareToggleCommand({
@@ -143,21 +190,18 @@ class CalendarRepository {
 
       return _ToggleComputation(
         joined: false,
-        command: (transaction) {
-          transaction.set(
-            docRef,
-            {
-              'start': Timestamp.fromDate(slot.start),
-              'end': Timestamp.fromDate(slot.end),
-              'capacity': slot.capacity,
-              'participants':
-                  updatedParticipants.map((p) => p.toMap()).toList(),
-              'participantIds': updatedParticipants.map((p) => p.uid).toList(),
-              'updatedAt': FieldValue.serverTimestamp(),
-            },
-            SetOptions(merge: true),
-          );
-        },
+        operation: (
+          docRef: docRef,
+          data: {
+            'start': Timestamp.fromDate(slot.start),
+            'end': Timestamp.fromDate(slot.end),
+            'capacity': slot.capacity,
+            'participants':
+                updatedParticipants.map((p) => p.toMap()).toList(),
+            'participantIds': updatedParticipants.map((p) => p.uid).toList(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          }
+        ),
       );
     }
 
@@ -180,20 +224,17 @@ class CalendarRepository {
 
     return _ToggleComputation(
       joined: true,
-      command: (transaction) {
-        transaction.set(
-          docRef,
-          {
-            'start': Timestamp.fromDate(slot.start),
-            'end': Timestamp.fromDate(slot.end),
-            'capacity': slot.capacity,
-            'participants': updatedParticipants.map((p) => p.toMap()).toList(),
-            'participantIds': updatedParticipants.map((p) => p.uid).toList(),
-            'updatedAt': FieldValue.serverTimestamp(),
-          },
-          SetOptions(merge: true),
-        );
-      },
+      operation: (
+        docRef: docRef,
+        data: {
+          'start': Timestamp.fromDate(slot.start),
+          'end': Timestamp.fromDate(slot.end),
+          'capacity': slot.capacity,
+          'participants': updatedParticipants.map((p) => p.toMap()).toList(),
+          'participantIds': updatedParticipants.map((p) => p.uid).toList(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }
+      ),
     );
   }
 
@@ -218,11 +259,14 @@ class CalendarRepository {
   }
 }
 
-typedef _TransactionCommand = void Function(Transaction transaction);
+typedef _Operation = ({
+  DocumentReference<Map<String, dynamic>> docRef,
+  Map<String, dynamic> data
+});
 
 class _ToggleComputation {
-  const _ToggleComputation({required this.joined, this.command});
+  const _ToggleComputation({required this.joined, this.operation});
 
   final bool joined;
-  final _TransactionCommand? command;
+  final _Operation? operation;
 }

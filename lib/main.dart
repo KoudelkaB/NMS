@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -28,6 +29,13 @@ Future<void> main() async {
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
       );
+
+      // Set Firestore settings before any Firestore operations on Windows
+      if (defaultTargetPlatform == TargetPlatform.windows) {
+        FirebaseFirestore.instance.settings = const Settings(
+          persistenceEnabled: false, // Disable persistence on desktop
+        );
+      }
 
       // Set timezone to Czech Republic
       tz.initializeTimeZones();
