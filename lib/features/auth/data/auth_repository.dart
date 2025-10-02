@@ -76,7 +76,11 @@ class AuthRepository {
     await credential.user!.reload();
 
     if (!credential.user!.emailVerified) {
-      await credential.user!.sendEmailVerification();
+      //final actionCodeSettings = ActionCodeSettings(
+      //  url: 'https://nms-dev-koudelkab.web.app/verify-email.html',
+      //  handleCodeInApp: false,
+      //);
+      await credential.user!.sendEmailVerification(/*actionCodeSettings*/);
     }
 
     return credential;
@@ -164,7 +168,11 @@ class AuthRepository {
   Future<void> sendEmailVerification() async {
     final user = _auth.currentUser;
     if (user != null && !user.emailVerified) {
-      await user.sendEmailVerification();
+      final actionCodeSettings = ActionCodeSettings(
+        url: 'https://nms-dev-koudelkab.web.app/verify-email.html',
+        handleCodeInApp: false,
+      );
+      await user.sendEmailVerification(actionCodeSettings);
     }
   }
 

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
@@ -48,6 +49,9 @@ Future<void> main() async {
           options: DefaultFirebaseOptions.currentPlatform,
         );
         debugPrint('Firebase initialized successfully');
+
+        // Set Firebase Auth language to Czech
+        await FirebaseAuth.instance.setLanguageCode('cs');
       } catch (e, stack) {
         debugPrint('Firebase initialization failed: $e\n$stack');
         // Continue with test app
