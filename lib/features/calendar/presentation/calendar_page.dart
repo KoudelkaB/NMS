@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -25,14 +26,25 @@ class CalendarPage extends HookConsumerWidget {
     final appUser = ref.watch(currentAppUserProvider);
     final firebaseUser = ref.watch(authStateProvider).value;
 
-    final scrollController = useScrollController();
+  final scrollController = useScrollController();
     final lastScrolledSlotIndex = useRef<int>(-1);
-    final scrollTrigger =
-        useState(0); // Used to force scroll even when already on today
+    // Triggers a scroll-to-current when Today button is used while switching to today
+    final todayScrollTrigger = useState(0);
+  // Remember last viewed top-visible slot index to keep when changing days (align by top)
+  final activeSlotIndex = useRef<int>(0);
+    // Track last focus day to detect changes
     final lastFocusDay = useRef<DateTime?>(null);
-    final currentSlotContext = useRef<BuildContext?>(null);
+    // Detect first page open to auto-focus current slot once
+    final firstOpen = useRef<bool>(true);
+  // Inactivity tracking
+    final inactivityTick = useState(0);
+    final lastUserActivity = useRef<DateTime>(DateTimeUtils.nowInPrague);
+  // Force rebuild on time changes (e.g., 30-minute boundaries)
+  final timeTick = useState(0);
+  // Track horizontal drag delta for day swipe navigation
+  final horizontalDragDx = useRef<double>(0);
 
-    final selectedDate = focusDay;
+  final selectedDate = focusDay;
     final now = DateTimeUtils.nowInPrague;
     final isToday = selectedDate.year == now.year &&
         selectedDate.month == now.month &&
@@ -40,148 +52,289 @@ class CalendarPage extends HookConsumerWidget {
     final currentSlotIndex =
         isToday ? now.hour * 2 + (now.minute >= 30 ? 1 : 0) : -1;
 
-    // Function to scroll to current slot (showing three past slots above)
-    void scrollToCurrentSlot({bool immediate = false}) {
-      if (!isToday || currentSlotIndex < 0) return;
+    // Keep stable keys for each slot to compute precise offsets with variable heights
+    final itemKeys = useMemoized(() => List.generate(48, (_) => GlobalKey()), const []);
 
-      void doScroll() {
-        if (scrollController.hasClients) {
-          // First jump to approximate position to ensure the item is built
-          const estimatedItemHeight = 100.0;
-          final targetOffset = (currentSlotIndex * estimatedItemHeight).clamp(
-            0.0,
-            scrollController.position.maxScrollExtent,
-          );
-          scrollController.jumpTo(targetOffset);
-
-          // Then in next frame, use ensureVisible with the correct context
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            final context = currentSlotContext.value;
-            if (context != null) {
-              Scrollable.ensureVisible(
-                context,
-                duration: const Duration(milliseconds: 500),
-                curve: Curves.easeInOut,
-                alignment: 0.0, // Scroll to top
-              );
-              lastScrolledSlotIndex.value = currentSlotIndex;
-            }
-          });
-        }
-      }
-
-      if (immediate) {
-        // For "Dnes" button when already on today - scroll immediately
-        WidgetsBinding.instance.addPostFrameCallback((_) => doScroll());
-      } else {
-        // For day changes - add extra delay to ensure list is rebuilt
-        Future.delayed(const Duration(milliseconds: 100), doScroll);
-      }
+    double? _topOffsetForIndex(int index) {
+      if (index < 0 || index > 47) return null;
+      final ctx = itemKeys[index].currentContext;
+      if (ctx == null) return null;
+      final renderObject = ctx.findRenderObject();
+      if (renderObject == null) return null;
+      final viewport = RenderAbstractViewport.of(renderObject);
+      final reveal = viewport.getOffsetToReveal(renderObject, 0.0);
+      return reveal.offset;
     }
 
-    // Detect app lifecycle changes (when user returns to the app)
-    useEffect(() {
-      if (!isToday) return null;
-
-      final lifecycleListener = AppLifecycleListener(
-        onResume: () {
-          // Check if the time slot has changed since last scroll
-          final now = DateTimeUtils.nowInPrague;
-          final newSlotIndex = now.hour * 2 + (now.minute >= 30 ? 1 : 0);
-
-          if (lastScrolledSlotIndex.value != newSlotIndex) {
-            // Time slot has changed, scroll to current slot
-            scrollToCurrentSlot();
+    // Scroll to an arbitrary slot index
+    void scrollToIndex(
+      int index, {
+      bool animate = false,
+      int pastAbove = 0,
+    }) {
+      int attempts = 0;
+      void doScroll() {
+        if (!scrollController.hasClients) {
+          if (attempts < 30) {
+            attempts++;
+            Future.delayed(const Duration(milliseconds: 60), doScroll);
           }
-        },
-      );
+          return;
+        }
+        final position = scrollController.position;
+        final totalExtent = position.maxScrollExtent + position.viewportDimension;
+        // Phase 1: approximate jump to build target child
+        final targetIndex = (index - pastAbove).clamp(0, 47);
+        final avgItemExtent = totalExtent / 48.0;
+        final approxOffset = (targetIndex * avgItemExtent).clamp(0.0, position.maxScrollExtent);
+        scrollController.jumpTo(approxOffset);
 
-      return lifecycleListener.dispose;
-    }, [
-      isToday,
-    ]);
-
-    // Scroll to current slot whenever we switch to today's page
-    useEffect(() {
-      // Only scroll if the day has actually changed or trigger was incremented
-      final dayChanged = lastFocusDay.value == null ||
-          lastFocusDay.value!.day != focusDay.day ||
-          lastFocusDay.value!.month != focusDay.month ||
-          lastFocusDay.value!.year != focusDay.year;
-
-      lastFocusDay.value = focusDay;
-
-      if (isToday && dayChanged) {
-        scrollToCurrentSlot();
-      }
-      return null;
-    }, [
-      focusDay,
-      isToday,
-      scrollTrigger
-          .value, // Include trigger to force scroll even when already on today
-    ]);
-
-    // Auto-scroll when next 30-min slot starts (only if already near current position)
-    useEffect(() {
-      if (!isToday) return null;
-
-      Timer? timer;
-
-      void scheduleNextScroll() {
-        final now = DateTimeUtils.nowInPrague;
-        final nextSlotTime = DateTime(
-          now.year,
-          now.month,
-          now.day,
-          now.hour,
-          now.minute >= 30 ? 30 : 0,
-        ).add(const Duration(minutes: 30));
-
-        final duration = nextSlotTime.difference(now);
-
-        timer = Timer(duration, () {
-          if (scrollController.hasClients) {
-            final currentOffset = scrollController.offset;
-            final newSlotIndex =
-                nextSlotTime.hour * 2 + (nextSlotTime.minute >= 30 ? 1 : 0);
-
-            // Use same calculation as main scroll: estimate based on scroll extent
-            final targetIndex = newSlotIndex > 0 ? newSlotIndex + 1 : 0;
-            final maxScrollExtent = scrollController.position.maxScrollExtent;
-            final estimatedItemHeight = maxScrollExtent / 48;
-            final targetOffset = (targetIndex * estimatedItemHeight).clamp(
-              0.0,
-              maxScrollExtent,
-            );
-
-            // Only auto-scroll if we're close to where we should be (within 3 items worth)
-            final difference = (currentOffset - targetOffset).abs();
-            final threeItemsHeight = estimatedItemHeight * 3;
-            if (difference < threeItemsHeight) {
-              scrollController.animateTo(
-                targetOffset,
-                duration: const Duration(milliseconds: 500),
-                curve: Curves.easeInOut,
-              );
+        // Phase 2: precise adjust once child is laid out
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final precise = _topOffsetForIndex(targetIndex);
+          if (precise == null) {
+            if (attempts < 30) {
+              attempts++;
+              Future.delayed(const Duration(milliseconds: 60), doScroll);
             }
+            return;
+          }
+          final clamped = precise.clamp(0.0, position.maxScrollExtent);
+          if (animate) {
+            scrollController.animateTo(
+              clamped,
+              duration: const Duration(milliseconds: 450),
+              curve: Curves.easeInOut,
+            );
+          } else {
+            scrollController.jumpTo(clamped);
           }
 
-          // Schedule next scroll
-          scheduleNextScroll();
+          // Stabilize: re-apply precise alignment for a couple more frames to account for late layout/data
+          int stabilizations = 0;
+          void stabilize() {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              final p = _topOffsetForIndex(targetIndex);
+              if (p != null) {
+                final c = p.clamp(0.0, position.maxScrollExtent);
+                scrollController.jumpTo(c);
+              }
+              if (++stabilizations < 2) {
+                stabilize();
+              }
+            });
+          }
+          stabilize();
         });
       }
 
-      scheduleNextScroll();
+      // Delay slightly to let the list attach and layout
+      Future.delayed(const Duration(milliseconds: 80), doScroll);
+    }
 
-      return () => timer?.cancel();
-    }, [
-      isToday,
-    ]);
+    // Function to scroll to current slot. Aim to place it second from the top (one slot above) when possible.
+    void scrollToCurrentSlot({bool animate = true}) {
+      if (!isToday || currentSlotIndex < 0) return;
+      scrollToIndex(
+        currentSlotIndex,
+        animate: animate,
+        pastAbove: 1,
+      );
+      lastScrolledSlotIndex.value = currentSlotIndex;
+      activeSlotIndex.value = currentSlotIndex;
+    }
+
+    // Removed center-preserving helper; we align by top using scrollToIndex
+
+    // Track user activity and remember top-visible slot (robust for variable heights)
+    useEffect(() {
+      void onScroll() {
+        lastUserActivity.value = DateTimeUtils.nowInPrague;
+        if (!scrollController.hasClients) return;
+        final pos = scrollController.position;
+        final currentOffset = pos.pixels;
+        int bestIndex = 0;
+        double bestOffset = -double.infinity;
+        for (var i = 0; i < 48; i++) {
+          final off = _topOffsetForIndex(i);
+          if (off == null) continue;
+          if (off <= currentOffset + 1 && off > bestOffset) {
+            bestOffset = off;
+            bestIndex = i;
+          }
+        }
+        activeSlotIndex.value = bestIndex;
+      }
+
+      scrollController.addListener(onScroll);
+      return () => scrollController.removeListener(onScroll);
+    }, [scrollController]);
+
+    // Detect app lifecycle changes (when user returns to the app)
+    useEffect(
+      () {
+        if (!isToday) return null;
+
+        final lifecycleListener = AppLifecycleListener(
+          onResume: () {
+            // Check if the time slot has changed since last scroll
+            final now = DateTimeUtils.nowInPrague;
+            final newSlotIndex = now.hour * 2 + (now.minute >= 30 ? 1 : 0);
+
+            if (lastScrolledSlotIndex.value != newSlotIndex) {
+              // Time slot has changed, scroll to current slot
+              scrollToCurrentSlot();
+              // Force rebuild so highlights/isPast update immediately
+              timeTick.value++;
+            }
+          },
+        );
+
+        return lifecycleListener.dispose;
+      },
+      [
+        isToday,
+      ],
+    );
+
+    // Handle day switching: keep same slot index across days except special today cases
+    useEffect(
+      () {
+        // Only scroll if the day has actually changed
+        final dayChanged = lastFocusDay.value == null ||
+            lastFocusDay.value!.day != focusDay.day ||
+            lastFocusDay.value!.month != focusDay.month ||
+            lastFocusDay.value!.year != focusDay.year;
+
+        lastFocusDay.value = focusDay;
+
+        if (dayChanged) {
+          if (isToday) {
+            // Scroll to current only on first open or when explicitly requested via Today button
+            final shouldScrollToCurrent =
+                firstOpen.value || todayScrollTrigger.value > 0;
+            if (shouldScrollToCurrent) {
+              scrollToCurrentSlot();
+              // Reset trigger after using it
+              if (todayScrollTrigger.value > 0) todayScrollTrigger.value = 0;
+              firstOpen.value = false;
+            } else {
+              // Keep the same top-visible slot (no animation), align its top to viewport top
+              scrollToIndex(activeSlotIndex.value, animate: false, pastAbove: 0);
+            }
+          } else {
+            // Non-today days: keep the same top-visible slot (no animation)
+            scrollToIndex(activeSlotIndex.value, animate: false, pastAbove: 0);
+            firstOpen.value = false;
+          }
+        } else if (firstOpen.value && isToday) {
+          // First build with today selected: ensure we scroll
+          scrollToCurrentSlot();
+          firstOpen.value = false;
+        }
+        return null;
+      },
+      [
+        focusDay,
+        isToday,
+        todayScrollTrigger.value,
+      ],
+    );
+
+    // Inactivity watcher: after >1 minute of no user activity, always jump to today and scroll current slot
+    useEffect(
+      () {
+        Timer? timer;
+
+        void schedule() {
+          timer?.cancel();
+          timer = Timer(
+            const Duration(minutes: 1),
+            () {
+              final last = lastUserActivity.value;
+              final now = DateTimeUtils.nowInPrague;
+              if (now.difference(last) >= const Duration(minutes: 1)) {
+                if (isToday) {
+                  // Already viewing today: just refocus to current slot
+                  scrollToCurrentSlot();
+                  timeTick.value++;
+                } else {
+                  // Not viewing today: behave like pressing "Dnes"
+                  todayScrollTrigger.value++;
+                  ref
+                      .read(calendarFocusDayProvider.notifier)
+                      .setFocusDay(DateTimeUtils.nowInPrague);
+                }
+              }
+              schedule();
+            },
+          );
+        }
+
+        schedule();
+        return () => timer?.cancel();
+      },
+      [isToday, inactivityTick.value],
+    );
+
+    // Auto-scroll when next 30-min slot starts
+    // If not viewing today (e.g., after midnight rollover), behave like pressing "Dnes"
+    useEffect(
+      () {
+        Timer? timer;
+
+        void scheduleNextScroll() {
+          final now = DateTimeUtils.nowInPrague;
+          final nextSlotTime = DateTime(
+            now.year,
+            now.month,
+            now.day,
+            now.hour,
+            now.minute >= 30 ? 30 : 0,
+          ).add(const Duration(minutes: 30));
+
+          final duration = nextSlotTime.difference(now);
+
+          timer = Timer(
+            duration,
+            () {
+              final currentNow = DateTimeUtils.nowInPrague;
+              final viewingToday =
+                  focusDay.year == currentNow.year &&
+                  focusDay.month == currentNow.month &&
+                  focusDay.day == currentNow.day;
+
+              if (viewingToday) {
+                // Refocus to the new current slot when it changes
+                scrollToCurrentSlot();
+                // Force rebuild so highlights and isPast update immediately
+                timeTick.value++;
+              } else {
+                // Not viewing today: switch to today like pressing "Dnes"
+                todayScrollTrigger.value++;
+                ref
+                    .read(calendarFocusDayProvider.notifier)
+                    .setFocusDay(currentNow);
+              }
+
+              // Schedule next scroll
+              scheduleNextScroll();
+            },
+          );
+        }
+
+        scheduleNextScroll();
+
+        return () => timer?.cancel();
+      },
+      [
+        focusDay,
+      ],
+    );
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Společný kalendář modliteb'),
+        title: const Text('Kalendář modliteb'),
         actions: [
           IconButton(
             onPressed: () => context.push('/profile'),
@@ -233,12 +386,14 @@ class CalendarPage extends HookConsumerWidget {
               children: [
                 _CalendarWeekSelector(weekStart: weekStart, focusDay: focusDay),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        DateFormat('EEEE d. MMMM yyyy', 'cs_CZ').format(focusDay),
+                        DateFormat('EEEE d. MMMM yyyy', 'cs_CZ')
+                            .format(focusDay),
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                       Row(
@@ -256,7 +411,8 @@ class CalendarPage extends HookConsumerWidget {
                           ),
                           IconButton(
                             onPressed: () {
-                              final nextWeek = focusDay.add(const Duration(days: 7));
+                              final nextWeek =
+                                  focusDay.add(const Duration(days: 7));
                               ref
                                   .read(calendarFocusDayProvider.notifier)
                                   .setFocusDay(nextWeek);
@@ -276,42 +432,77 @@ class CalendarPage extends HookConsumerWidget {
                         for (final slot in slots) slot.id: slot,
                       };
                       final generatedSlots = _generateDaySlots(focusDay);
-                      return ListView.builder(
-                        key: PageStorageKey<String>(
-                            'calendar_list_${focusDay.toIso8601String()}',),
-                        controller: scrollController,
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        itemCount: generatedSlots.length,
-                        itemBuilder: (context, index) {
-                          final slotStart = generatedSlots[index];
-                          final slotId = TimeSlot.buildId(slotStart);
-                          final slot = timeSlotsById[slotId] ??
-                              TimeSlot(
-                                id: slotId,
-                                start: slotStart,
-                                end: slotStart.add(const Duration(minutes: 30)),
-                                capacity: 10,
-                                participants: const [],
-                                participantIds: const [],
-                                updatedAt: DateTimeUtils.nowInPrague,
-                              );
-                          final highlight = isToday && index == currentSlotIndex;
-                          final isMine =
-                              appUser != null && slot.containsUser(appUser.uid);
-                          return Builder(
-                            builder: (tileContext) {
-                              if (highlight) {
-                                currentSlotContext.value = tileContext;
-                              }
-                              return TimeSlotTile(
+                      return GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onHorizontalDragStart: (_) {
+                          horizontalDragDx.value = 0;
+                        },
+                        onHorizontalDragUpdate: (details) {
+                          horizontalDragDx.value += details.delta.dx;
+                        },
+                        onHorizontalDragEnd: (details) {
+                          final velocity = details.primaryVelocity ?? 0;
+                          const velocityThreshold = 250; // px/s
+                          const distanceThreshold = 60; // px
+
+                          final passedVelocity = velocity.abs() > velocityThreshold;
+                          final passedDistance =
+                              horizontalDragDx.value.abs() > distanceThreshold;
+
+                          if (passedVelocity || passedDistance) {
+                            if (velocity < 0 || horizontalDragDx.value < 0) {
+                              // Swipe left -> next day
+                              final nextDay = focusDay.add(const Duration(days: 1));
+                              ref
+                                  .read(calendarFocusDayProvider.notifier)
+                                  .setFocusDay(nextDay);
+                            } else if (velocity > 0 || horizontalDragDx.value > 0) {
+                              // Swipe right -> previous day
+                              final prevDay =
+                                  focusDay.subtract(const Duration(days: 1));
+                              ref
+                                  .read(calendarFocusDayProvider.notifier)
+                                  .setFocusDay(prevDay);
+                            }
+                          }
+                        },
+                        child: ListView.builder(
+                          key: PageStorageKey<String>(
+                            'calendar_list_${focusDay.toIso8601String()}',
+                          ),
+                          controller: scrollController,
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          cacheExtent: 4000,
+                          itemCount: generatedSlots.length,
+                          itemBuilder: (context, index) {
+                            final slotStart = generatedSlots[index];
+                            final slotId = TimeSlot.buildId(slotStart);
+                            final slot = timeSlotsById[slotId] ??
+                                TimeSlot(
+                                  id: slotId,
+                                  start: slotStart,
+                                  end:
+                                      slotStart.add(const Duration(minutes: 30)),
+                                  capacity: 10,
+                                  participants: const [],
+                                  participantIds: const [],
+                                  updatedAt: DateTimeUtils.nowInPrague,
+                                );
+                            final highlight =
+                                isToday && index == currentSlotIndex;
+                            final isMine = appUser != null &&
+                                slot.containsUser(appUser.uid);
+                            return Container(
+                              key: itemKeys[index],
+                              child: TimeSlotTile(
                                 slot: slot,
                                 highlighted: highlight,
                                 isMine: isMine,
                                 onTap: () => _onSlotTapped(context, ref, slot),
-                              );
-                            },
-                          );
-                        },
+                              ),
+                            );
+                          },
+                        ),
                       );
                     },
                   ),
@@ -322,16 +513,17 @@ class CalendarPage extends HookConsumerWidget {
           ? FloatingActionButton.extended(
               onPressed: () {
                 final wasAlreadyToday = isToday;
+                // Mark explicit request to focus current when switching to today
+                if (!wasAlreadyToday) todayScrollTrigger.value++;
                 ref
                     .read(calendarFocusDayProvider.notifier)
                     .setFocusDay(DateTimeUtils.nowInPrague);
 
                 if (wasAlreadyToday) {
-                  // If already on today, scroll immediately
-                  scrollToCurrentSlot(immediate: true);
-                } else {
-                  // If switching from another day, increment trigger to force scroll
-                  scrollTrigger.value++;
+                  // If already on today, keep animation for autofocus
+                  scrollToCurrentSlot(animate: true);
+                  // Force immediate rebuild so highlight updates even without provider change
+                  timeTick.value++;
                 }
               },
               icon: const Icon(Icons.today),

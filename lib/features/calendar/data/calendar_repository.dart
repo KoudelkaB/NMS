@@ -15,7 +15,8 @@ class CalendarRepository {
   CollectionReference<Map<String, dynamic>> get _slotsCollection =>
       _firestore.collection('timeSlots');
 
-  Future<List<TimeSlot>> _fetchUserAssignments(String uid, DateTime? from) async {
+  Future<List<TimeSlot>> _fetchUserAssignments(
+      String uid, DateTime? from) async {
     final snapshot = await _slotsCollection
         .where('participantIds', arrayContains: uid)
         .get();
@@ -62,7 +63,8 @@ class CalendarRepository {
   Stream<List<TimeSlot>> watchUserAssignments(String uid, {DateTime? from}) {
     if (defaultTargetPlatform == TargetPlatform.windows) {
       // Workaround for Windows threading issue with Firestore snapshots
-      return Stream.fromFuture(_fetchUserAssignments(uid, from)).asBroadcastStream();
+      return Stream.fromFuture(_fetchUserAssignments(uid, from))
+          .asBroadcastStream();
     }
     // Note: array-contains with orderBy requires a composite index in Firestore
     // To avoid this, we only use array-contains and do filtering + sorting in memory
@@ -215,8 +217,7 @@ class CalendarRepository {
             'start': Timestamp.fromDate(slot.start),
             'end': Timestamp.fromDate(slot.end),
             'capacity': slot.capacity,
-            'participants':
-                updatedParticipants.map((p) => p.toMap()).toList(),
+            'participants': updatedParticipants.map((p) => p.toMap()).toList(),
             'participantIds': updatedParticipants.map((p) => p.uid).toList(),
             'updatedAt': FieldValue.serverTimestamp(),
           }
