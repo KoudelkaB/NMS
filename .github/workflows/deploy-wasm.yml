@@ -6,6 +6,9 @@ on:
       - main  # Změňte, pokud používáte jinou hlavní větev (např. master)
   workflow_dispatch: # Ponechejte pro možnost ručního spuštění z GitHub UI
 
+permissions:
+  contents: write # This grants the necessary permission to push to branches
+
 jobs:
   build_and_deploy:
     runs-on: ubuntu-latest
