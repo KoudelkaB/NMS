@@ -29,6 +29,7 @@ class TimeSlotsInvalidatorNotifier extends Notifier<int> {
   }
 }
 
+
 final calendarFocusDayProvider =
     NotifierProvider<CalendarFocusDayNotifier, DateTime>(
   CalendarFocusDayNotifier.new,
@@ -77,6 +78,30 @@ final daySlotsProvider = StreamProvider.autoDispose<List<TimeSlot>>((ref) {
 final currentAppUserProvider = Provider<AppUser?>((ref) {
   final userAsync = ref.watch(appUserProvider);
   return userAsync.value;
+});
+
+/// Stream all slots for the currently selected week [weekStart, weekStart + 7d)
+final weekSlotsProvider =
+    StreamProvider.autoDispose<List<TimeSlot>>((ref) {
+  // Keep alive for better caching across quick toggles
+  final link = ref.keepAlive();
+  // Dispose after some inactivity
+  Timer? timer;
+  ref.onDispose(() => timer?.cancel());
+  ref.onCancel(() {
+    timer = Timer(const Duration(minutes: 5), link.close);
+  });
+  ref.onResume(() {
+    timer?.cancel();
+  });
+
+  // Watch invalidator to force refresh when needed
+  ref.watch(timeSlotsInvalidatorProvider);
+
+  final repository = ref.watch(calendarRepositoryProvider);
+  final weekStart = ref.watch(calendarWeekStartProvider);
+  final weekEnd = weekStart.add(const Duration(days: 7));
+  return repository.watchSlots(weekStart, weekEnd);
 });
 
 final bookingActionProvider = Provider<BookingAction>((ref) {

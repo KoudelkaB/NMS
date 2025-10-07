@@ -15,6 +15,11 @@ import '../application/calendar_providers.dart';
 import '../data/time_slot.dart';
 import 'time_slot_tile.dart';
 
+// Shared layout constants for week grid
+const double _kWeekGridTimeColWidth = 72.0;
+const double _kWeekGridCellWidth = 160.0;
+const double _kWeekGridRowHeight = 56.0;
+
 class CalendarPage extends HookConsumerWidget {
   const CalendarPage({super.key});
 
@@ -25,6 +30,12 @@ class CalendarPage extends HookConsumerWidget {
     final daySlots = ref.watch(daySlotsProvider);
     final appUser = ref.watch(currentAppUserProvider);
     final firebaseUser = ref.watch(authStateProvider).value;
+
+  final isWeekView = useState(false);
+  // Controllers for week grid so FAB can programmatically scroll
+  final weekVerticalController = useScrollController();
+  final weekHorizontalBodyController = useScrollController();
+  final weekHorizontalHeaderController = useScrollController();
 
   final scrollController = useScrollController();
     final lastScrolledSlotIndex = useRef<int>(-1);
@@ -337,6 +348,14 @@ class CalendarPage extends HookConsumerWidget {
         title: const Text('Kalendář modliteb'),
         actions: [
           IconButton(
+            onPressed: () => isWeekView.value = !isWeekView.value,
+            icon: Icon(isWeekView.value
+                ? Icons.view_day_outlined
+                : Icons.view_week_outlined),
+            tooltip:
+                isWeekView.value ? 'Zobrazit denní seznam' : 'Zobrazit týden',
+          ),
+          IconButton(
             onPressed: () => context.push('/profile'),
             icon: const Icon(Icons.person_outline),
             tooltip: 'Profil uživatele',
@@ -354,7 +373,7 @@ class CalendarPage extends HookConsumerWidget {
           ),
         ],
       ),
-      body: firebaseUser != null && !firebaseUser.emailVerified
+    body: firebaseUser != null && !firebaseUser.emailVerified
           ? Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Card(
@@ -384,38 +403,75 @@ class CalendarPage extends HookConsumerWidget {
             )
           : Column(
               children: [
-                _CalendarWeekSelector(weekStart: weekStart, focusDay: focusDay),
+                // Top selector: days for day-view, weeks-of-month for week-view
+                if (isWeekView.value)
+                  _MonthWeeksSelector(focusDay: focusDay)
+                else
+                  _CalendarWeekSelector(
+                    weekStart: weekStart,
+                    focusDay: focusDay,
+                  ),
                 Padding(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        DateFormat('EEEE d. MMMM yyyy', 'cs_CZ')
-                            .format(focusDay),
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
+                      if (isWeekView.value)
+                        Text(
+                          DateFormat('LLLL yyyy', 'cs_CZ').format(
+                            DateTime(focusDay.year, focusDay.month, 1),
+                          ),
+                          style: Theme.of(context).textTheme.titleLarge,
+                        )
+                      else
+                        Text(
+                          DateFormat('EEEE d. MMMM yyyy', 'cs_CZ')
+                              .format(focusDay),
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
                       Row(
                         children: [
                           IconButton(
                             onPressed: () {
-                              final previousWeek = focusDay.subtract(
-                                const Duration(days: 7),
-                              );
-                              ref
-                                  .read(calendarFocusDayProvider.notifier)
-                                  .setFocusDay(previousWeek);
+                              if (isWeekView.value) {
+                                final prevMonth = DateTime(
+                                  focusDay.year,
+                                  focusDay.month - 1,
+                                  1,
+                                );
+                                ref
+                                    .read(calendarFocusDayProvider.notifier)
+                                    .setFocusDay(prevMonth);
+                              } else {
+                                final previousWeek = focusDay.subtract(
+                                  const Duration(days: 7),
+                                );
+                                ref
+                                    .read(calendarFocusDayProvider.notifier)
+                                    .setFocusDay(previousWeek);
+                              }
                             },
                             icon: const Icon(Icons.chevron_left),
                           ),
                           IconButton(
                             onPressed: () {
-                              final nextWeek =
-                                  focusDay.add(const Duration(days: 7));
-                              ref
-                                  .read(calendarFocusDayProvider.notifier)
-                                  .setFocusDay(nextWeek);
+                              if (isWeekView.value) {
+                                final nextMonth = DateTime(
+                                  focusDay.year,
+                                  focusDay.month + 1,
+                                  1,
+                                );
+                                ref
+                                    .read(calendarFocusDayProvider.notifier)
+                                    .setFocusDay(nextMonth);
+                              } else {
+                                final nextWeek =
+                                    focusDay.add(const Duration(days: 7));
+                                ref
+                                    .read(calendarFocusDayProvider.notifier)
+                                    .setFocusDay(nextWeek);
+                              }
                             },
                             icon: const Icon(Icons.chevron_right),
                           ),
@@ -424,120 +480,198 @@ class CalendarPage extends HookConsumerWidget {
                     ],
                   ),
                 ),
-                Expanded(
-                  child: AsyncValueWidget<List<TimeSlot>>(
-                    value: daySlots,
-                    builder: (slots) {
-                      final timeSlotsById = {
-                        for (final slot in slots) slot.id: slot,
-                      };
-                      final generatedSlots = _generateDaySlots(focusDay);
-                      return GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onHorizontalDragStart: (_) {
-                          horizontalDragDx.value = 0;
-                        },
-                        onHorizontalDragUpdate: (details) {
-                          horizontalDragDx.value += details.delta.dx;
-                        },
-                        onHorizontalDragEnd: (details) {
-                          final velocity = details.primaryVelocity ?? 0;
-                          const velocityThreshold = 250; // px/s
-                          const distanceThreshold = 60; // px
+        Expanded(
+          child: isWeekView.value
+            ? _WeekGrid(
+              focusDay: focusDay,
+              verticalController: weekVerticalController,
+              gridHorizontalController: weekHorizontalBodyController,
+              headerHorizontalController: weekHorizontalHeaderController,
+            )
+                      : AsyncValueWidget<List<TimeSlot>>(
+                          value: daySlots,
+                          builder: (slots) {
+                            final timeSlotsById = {
+                              for (final slot in slots) slot.id: slot,
+                            };
+                            final generatedSlots = _generateDaySlots(focusDay);
+                            return GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onHorizontalDragStart: (_) {
+                                horizontalDragDx.value = 0;
+                              },
+                              onHorizontalDragUpdate: (details) {
+                                horizontalDragDx.value += details.delta.dx;
+                              },
+                              onHorizontalDragEnd: (details) {
+                                final velocity = details.primaryVelocity ?? 0;
+                                const velocityThreshold = 250; // px/s
+                                const distanceThreshold = 60; // px
 
-                          final passedVelocity = velocity.abs() > velocityThreshold;
-                          final passedDistance =
-                              horizontalDragDx.value.abs() > distanceThreshold;
+                                final passedVelocity =
+                                    velocity.abs() > velocityThreshold;
+                                final passedDistance =
+                                    horizontalDragDx.value.abs() >
+                                        distanceThreshold;
 
-                          if (passedVelocity || passedDistance) {
-                            if (velocity < 0 || horizontalDragDx.value < 0) {
-                              // Swipe left -> next day
-                              final nextDay = focusDay.add(const Duration(days: 1));
-                              ref
-                                  .read(calendarFocusDayProvider.notifier)
-                                  .setFocusDay(nextDay);
-                            } else if (velocity > 0 || horizontalDragDx.value > 0) {
-                              // Swipe right -> previous day
-                              final prevDay =
-                                  focusDay.subtract(const Duration(days: 1));
-                              ref
-                                  .read(calendarFocusDayProvider.notifier)
-                                  .setFocusDay(prevDay);
-                            }
-                          }
-                        },
-                        child: ListView.builder(
-                          key: PageStorageKey<String>(
-                            'calendar_list_${focusDay.toIso8601String()}',
-                          ),
-                          controller: scrollController,
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          cacheExtent: 4000,
-                          itemCount: generatedSlots.length,
-                          itemBuilder: (context, index) {
-                            final slotStart = generatedSlots[index];
-                            final slotId = TimeSlot.buildId(slotStart);
-                            final slot = timeSlotsById[slotId] ??
-                                TimeSlot(
-                                  id: slotId,
-                                  start: slotStart,
-                                  end:
-                                      slotStart.add(const Duration(minutes: 30)),
-                                  capacity: 10,
-                                  participants: const [],
-                                  participantIds: const [],
-                                  updatedAt: DateTimeUtils.nowInPrague,
-                                );
-                            final highlight =
-                                isToday && index == currentSlotIndex;
-                            final isMine = appUser != null &&
-                                slot.containsUser(appUser.uid);
-                            return Container(
-                              key: itemKeys[index],
-                              child: TimeSlotTile(
-                                slot: slot,
-                                highlighted: highlight,
-                                isMine: isMine,
-                                onTap: () => _onSlotTapped(context, ref, slot),
+                                if (passedVelocity || passedDistance) {
+                                  if (velocity < 0 ||
+                                      horizontalDragDx.value < 0) {
+                                    // Swipe left -> next day
+                                    final nextDay =
+                                        focusDay.add(const Duration(days: 1));
+                                    ref
+                                        .read(calendarFocusDayProvider.notifier)
+                                        .setFocusDay(nextDay);
+                                  } else if (velocity > 0 ||
+                                      horizontalDragDx.value > 0) {
+                                    // Swipe right -> previous day
+                                    final prevDay = focusDay
+                                        .subtract(const Duration(days: 1));
+                                    ref
+                                        .read(calendarFocusDayProvider.notifier)
+                                        .setFocusDay(prevDay);
+                                  }
+                                }
+                              },
+                              child: ListView.builder(
+                                key: PageStorageKey<String>(
+                                  'calendar_list_${focusDay.toIso8601String()}',
+                                ),
+                                controller: scrollController,
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 16),
+                                cacheExtent: 4000,
+                                itemCount: generatedSlots.length,
+                                itemBuilder: (context, index) {
+                                  final slotStart = generatedSlots[index];
+                                  final slotId = TimeSlot.buildId(slotStart);
+                                  final slot = timeSlotsById[slotId] ??
+                                      TimeSlot(
+                                        id: slotId,
+                                        start: slotStart,
+                                        end: slotStart
+                                            .add(const Duration(minutes: 30)),
+                                        capacity: 10,
+                                        participants: const [],
+                                        participantIds: const [],
+                                        updatedAt:
+                                            DateTimeUtils.nowInPrague,
+                                      );
+                                  final highlight = isToday &&
+                                      index == currentSlotIndex;
+                                  final isMine = appUser != null &&
+                                      slot.containsUser(appUser.uid);
+                                  return Container(
+                                    key: itemKeys[index],
+                                    child: TimeSlotTile(
+                                      slot: slot,
+                                      highlighted: highlight,
+                                      isMine: isMine,
+                                      onTap: () async {
+                                        // Preserve current scroll offset to avoid viewport jump after booking
+                                        final savedOffset = scrollController.hasClients
+                                            ? scrollController.offset
+                                            : null;
+                                        await _onSlotTapped(context, ref, slot);
+                                        if (!context.mounted || savedOffset == null) return;
+                                        int attempts = 0;
+                                        void reapply() {
+                                          if (!scrollController.hasClients) {
+                                            if (attempts < 20) {
+                                              attempts++;
+                                              Future.delayed(const Duration(milliseconds: 60), reapply);
+                                            }
+                                            return;
+                                          }
+                                          final pos = scrollController.position;
+                                          final target = savedOffset.clamp(0.0, pos.maxScrollExtent);
+                                          scrollController.jumpTo(target);
+                                          // Stabilize across a couple frames in case list height changed
+                                          if (attempts < 3) {
+                                            attempts++;
+                                            WidgetsBinding.instance.addPostFrameCallback((_) => reapply());
+                                          }
+                                        }
+                                        WidgetsBinding.instance.addPostFrameCallback((_) => reapply());
+                                      },
+                                    ),
+                                  );
+                                },
                               ),
                             );
                           },
                         ),
-                      );
-                    },
-                  ),
                 ),
               ],
             ),
       floatingActionButton: firebaseUser != null && firebaseUser.emailVerified
           ? FloatingActionButton.extended(
               onPressed: () {
+                final now = DateTimeUtils.nowInPrague;
                 final wasAlreadyToday = isToday;
-                // Mark explicit request to focus current when switching to today
-                if (!wasAlreadyToday) todayScrollTrigger.value++;
+                // Always set focus to today
                 ref
                     .read(calendarFocusDayProvider.notifier)
-                    .setFocusDay(DateTimeUtils.nowInPrague);
+                    .setFocusDay(now);
 
-                if (wasAlreadyToday) {
-                  // If already on today, keep animation for autofocus
-                  scrollToCurrentSlot(animate: true);
-                  // Force immediate rebuild so highlight updates even without provider change
-                  timeTick.value++;
+                if (isWeekView.value) {
+                  // Week view: scroll to current day column and row
+                  void doScroll() {
+                    if (!weekVerticalController.hasClients ||
+                        !weekHorizontalBodyController.hasClients) {
+                      // Try shortly later if controllers not attached yet
+                      Future.delayed(const Duration(milliseconds: 60), doScroll);
+                      return;
+                    }
+                    final rowIndex = now.hour * 2 + (now.minute >= 30 ? 1 : 0);
+                    final colIndex = (now.weekday - 1).clamp(0, 6);
+
+                    final vPos = weekVerticalController.position;
+                    final targetV = (rowIndex * _kWeekGridRowHeight)
+                        .clamp(0.0, vPos.maxScrollExtent);
+                    weekVerticalController.animateTo(
+                      targetV,
+                      duration: const Duration(milliseconds: 400),
+                      curve: Curves.easeInOut,
+                    );
+
+                    final hPos = weekHorizontalBodyController.position;
+                    final targetH = (colIndex * _kWeekGridCellWidth)
+                        .clamp(0.0, hPos.maxScrollExtent);
+                    weekHorizontalBodyController.animateTo(
+                      targetH,
+                      duration: const Duration(milliseconds: 400),
+                      curve: Curves.easeInOut,
+                    );
+                    // Refresh visuals immediately
+                    timeTick.value++;
+                  }
+                  // Allow one frame for the week grid to rebuild for today
+                  WidgetsBinding.instance.addPostFrameCallback((_) => doScroll());
+                } else {
+                  // Day view: retain previous behavior
+                  if (!wasAlreadyToday) todayScrollTrigger.value++;
+                  if (wasAlreadyToday) {
+                    scrollToCurrentSlot(animate: true);
+                    timeTick.value++;
+                  }
                 }
               },
               icon: const Icon(Icons.today),
-              label: const Text('Dnes'),
+              label: const Text('Nyní'),
             )
           : null,
     );
   }
 
-  Future<void> _onSlotTapped(
-    BuildContext context,
-    WidgetRef ref,
-    TimeSlot slot,
-  ) async {
+}
+
+Future<void> _onSlotTapped(
+  BuildContext context,
+  WidgetRef ref,
+  TimeSlot slot,
+) async {
     final bookingAction = ref.read(bookingActionProvider);
     final isAssigned = slot.containsUser(bookingAction.user.uid);
     var recurring = false;
@@ -636,12 +770,470 @@ class CalendarPage extends HookConsumerWidget {
     }
   }
 
-  List<DateTime> _generateDaySlots(DateTime date) {
+List<DateTime> _generateDaySlots(DateTime date) {
     final startOfDay = DateTime(date.year, date.month, date.day);
     return List.generate(48, (index) {
       final minutesOffset = index * 30;
       return startOfDay.add(Duration(minutes: minutesOffset));
     });
+}
+
+class _WeekGrid extends HookConsumerWidget {
+  const _WeekGrid({
+    required this.focusDay,
+    required this.verticalController,
+    required this.gridHorizontalController,
+    required this.headerHorizontalController,
+  });
+
+  final DateTime focusDay;
+  final ScrollController verticalController;
+  final ScrollController gridHorizontalController;
+  final ScrollController headerHorizontalController;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Trigger periodic rebuild so the red time bar moves
+  final tick = useState(0);
+    useEffect(() {
+      final timer = Timer.periodic(const Duration(seconds: 30), (_) {
+        tick.value++;
+      });
+      return timer.cancel;
+    }, const []);
+    final weekStart = ref.watch(calendarWeekStartProvider);
+    final slotsAsync = ref.watch(weekSlotsProvider);
+    final appUser = ref.watch(currentAppUserProvider);
+
+  final days = List.generate(7, (i) => weekStart.add(Duration(days: i)));
+  final rowCount = 48;
+  final now = DateTimeUtils.nowInPrague;
+  final isThisWeek =
+    now.isAfter(weekStart.subtract(const Duration(days: 1))) &&
+      now.isBefore(weekStart.add(const Duration(days: 8)));
+
+    // Sync header horizontal scroll with body horizontal scroll
+    useEffect(() {
+      void onGridScroll() {
+        if (!headerHorizontalController.hasClients ||
+            !gridHorizontalController.hasClients) return;
+        final pos = gridHorizontalController.position.pixels;
+        if ((headerHorizontalController.position.pixels - pos).abs() > 0.5) {
+          headerHorizontalController.jumpTo(pos);
+        }
+      }
+      gridHorizontalController.addListener(onGridScroll);
+      return () => gridHorizontalController.removeListener(onGridScroll);
+    }, [gridHorizontalController, headerHorizontalController]);
+
+    return AsyncValueWidget<List<TimeSlot>>(
+      value: slotsAsync,
+      builder: (slots) {
+        // Map by start to quick lookup
+        final byId = {for (final s in slots) s.id: s};
+
+        // Build grid
+  const timeColWidth = _kWeekGridTimeColWidth;
+  const cellWidth = _kWeekGridCellWidth; // can scroll horizontally
+  const rowHeight = _kWeekGridRowHeight;
+
+        // Layout: Column
+        //  - Row (pinned header): [time header] + [days header scrollable horizontally]
+        //  - Expanded Row: [left time list (shares vertical scroll)] + [day grid (shares vertical scroll and horizontal scroll)]
+        return Column(
+          children: [
+            // Pinned header
+            Row(
+              children: [
+                Container(
+                  height: 48,
+                  width: timeColWidth,
+                  color: Theme.of(context)
+                      .colorScheme
+                      .surfaceContainerHighest,
+                ),
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    controller: headerHorizontalController,
+                    child: Row(
+                      children: [
+                        for (final d in days)
+                          Builder(builder: (context) {
+                            final isCurrentDay = isThisWeek &&
+                                d.year == now.year &&
+                                d.month == now.month &&
+                                d.day == now.day;
+                            final bg = isCurrentDay
+                                ? Theme.of(context)
+                                    .colorScheme
+                                    .secondaryContainer
+                                : null;
+                            final fg = isCurrentDay
+                                ? Theme.of(context)
+                                    .colorScheme
+                                    .onSecondaryContainer
+                                : Theme.of(context)
+                                    .textTheme
+                                    .labelLarge
+                                    ?.color;
+                            return Container(
+                              width: cellWidth,
+                              height: 48,
+                              color: bg,
+                              alignment: Alignment.center,
+                              child: Text(
+                                DateFormat('d. MMMM', 'cs_CZ').format(d),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelLarge
+                                    ?.copyWith(color: fg),
+                              ),
+                            );
+                          }),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const Divider(height: 1),
+            // Body
+            Expanded(
+              child: Scrollbar(
+                controller: verticalController,
+                child: SingleChildScrollView(
+                  controller: verticalController,
+                  scrollDirection: Axis.vertical,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Left fixed time column
+                      SizedBox(
+                        width: timeColWidth,
+                        child: Column(
+                          children: [
+                            for (var row = 0; row < rowCount; row++)
+                              Builder(builder: (context) {
+                                final isCurrentRow = isThisWeek &&
+                                    row == (now.hour * 2 +
+                                        (now.minute >= 30 ? 1 : 0));
+                                final bg = isCurrentRow
+                                    ? Theme.of(context)
+                                        .colorScheme
+                                        .secondaryContainer
+                                    : null;
+                                final fg = isCurrentRow
+                                    ? Theme.of(context)
+                                        .colorScheme
+                                        .onSecondaryContainer
+                                    : Theme.of(context)
+                                        .textTheme
+                                        .labelLarge
+                                        ?.color;
+                                final frac = isCurrentRow
+                                    ? (((now.minute % 30) * 60 + now.second) /
+                                        (30 * 60))
+                                    : null;
+                                final top = frac != null
+                                    ? (frac * rowHeight - 1.0)
+                                        .clamp(0.0, rowHeight - 2.0)
+                                    : null;
+                                return Container(
+                                  height: rowHeight,
+                                  decoration: BoxDecoration(
+                                    color: bg,
+                                    border: Border(
+                                      bottom: BorderSide(
+                                        color:
+                                            Theme.of(context).dividerColor,
+                                      ),
+                                    ),
+                                  ),
+                                  child: Stack(
+                                    children: [
+                                      if (top != null)
+                                        Positioned(
+                                          top: top.floorToDouble(),
+                                          left: 0,
+                                          right: 0,
+                                          child: Container(
+                                            height: 2,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .error,
+                                          ),
+                                        ),
+                                      Align(
+                                        alignment: Alignment.center,
+                                        child: Text(
+                                          DateFormat('HH:mm').format(
+                                            DateTime(
+                                              weekStart.year,
+                                              weekStart.month,
+                                              weekStart.day,
+                                            ).add(
+                                                Duration(minutes: row * 30)),
+                                          ),
+                                          style: () {
+                                            // Use the background color for aura (blue-ish for current time row)
+                                            final auraColor = bg ?? Theme.of(context).colorScheme.surface;
+                                            // Build a 2px-wide aura using a ring of shadows around the text
+                                            final List<Shadow>? aura = top != null
+                                                ? [
+                                                    // center soft fill
+                                                    Shadow(color: auraColor, blurRadius: 1, offset: const Offset(0, 0)),
+                                                    // ring at 1px
+                                                    const Shadow(color: Colors.transparent, blurRadius: 0, offset: Offset(0, 0)),
+                                                    Shadow(color: auraColor, blurRadius: 0, offset: const Offset(0, 1)),
+                                                    Shadow(color: auraColor, blurRadius: 0, offset: const Offset(1, 0)),
+                                                    Shadow(color: auraColor, blurRadius: 0, offset: const Offset(0, -1)),
+                                                    Shadow(color: auraColor, blurRadius: 0, offset: const Offset(-1, 0)),
+                                                    Shadow(color: auraColor, blurRadius: 0, offset: const Offset(1, 1)),
+                                                    Shadow(color: auraColor, blurRadius: 0, offset: const Offset(-1, 1)),
+                                                    Shadow(color: auraColor, blurRadius: 0, offset: const Offset(1, -1)),
+                                                    Shadow(color: auraColor, blurRadius: 0, offset: const Offset(-1, -1)),
+                                                    // ring at 2px for a thicker aura
+                                                    Shadow(color: auraColor, blurRadius: 0, offset: const Offset(0, 2)),
+                                                    Shadow(color: auraColor, blurRadius: 0, offset: const Offset(2, 0)),
+                                                    Shadow(color: auraColor, blurRadius: 0, offset: const Offset(0, -2)),
+                                                    Shadow(color: auraColor, blurRadius: 0, offset: const Offset(-2, 0)),
+                                                    Shadow(color: auraColor, blurRadius: 0, offset: const Offset(2, 2)),
+                                                    Shadow(color: auraColor, blurRadius: 0, offset: const Offset(-2, 2)),
+                                                    Shadow(color: auraColor, blurRadius: 0, offset: const Offset(2, -2)),
+                                                    Shadow(color: auraColor, blurRadius: 0, offset: const Offset(-2, -2)),
+                                                  ]
+                                                : null;
+                                            return Theme.of(context)
+                                                .textTheme
+                                                .labelLarge
+                                                ?.copyWith(
+                                                  color: fg,
+                                                  shadows: aura,
+                                                );
+                                          }(),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }),
+                          ],
+                        ),
+                      ),
+                      // Right horizontally scrollable day grid
+                      Expanded(
+                        child: Scrollbar(
+                          controller: gridHorizontalController,
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            controller: gridHorizontalController,
+                            child: SizedBox(
+                              width: cellWidth * days.length,
+                              child: Column(
+                                children: [
+                                  for (var row = 0; row < rowCount; row++)
+                                    SizedBox(
+                                      height: rowHeight,
+                                      child: Row(
+                                        children: [
+                                          for (var c = 0; c < days.length; c++)
+                                            _WeekCell(
+                                              start: DateTime(
+                                                days[c].year,
+                                                days[c].month,
+                                                days[c].day,
+                                                0,
+                                                0,
+                                              ).add(
+                                                  Duration(minutes: row * 30)),
+                                              lookup: byId,
+                                              width: cellWidth,
+                                              height: rowHeight,
+                                              onTap: (slot) async {
+                                                // Preserve week grid scroll positions (vertical and horizontal)
+                                                final savedV = verticalController.hasClients
+                                                    ? verticalController.offset
+                                                    : null;
+                                                final savedH = gridHorizontalController.hasClients
+                                                    ? gridHorizontalController.offset
+                                                    : null;
+                                                await _onSlotTapped(context, ref, slot);
+                                                if (!context.mounted) return;
+                                                int attempts = 0;
+                                                void reapply() {
+                                                  bool pending = false;
+                                                  if (savedV != null) {
+                                                    if (!verticalController.hasClients) {
+                                                      pending = true;
+                                                    } else {
+                                                      final vPos = verticalController.position;
+                                                      final vTarget = savedV.clamp(0.0, vPos.maxScrollExtent);
+                                                      verticalController.jumpTo(vTarget);
+                                                    }
+                                                  }
+                                                  if (savedH != null) {
+                                                    if (!gridHorizontalController.hasClients) {
+                                                      pending = true;
+                                                    } else {
+                                                      final hPos = gridHorizontalController.position;
+                                                      final hTarget = savedH.clamp(0.0, hPos.maxScrollExtent);
+                                                      gridHorizontalController.jumpTo(hTarget);
+                                                    }
+                                                  }
+                                                  if (pending && attempts < 20) {
+                                                    attempts++;
+                                                    Future.delayed(const Duration(milliseconds: 60), reapply);
+                                                  } else if (attempts < 3) {
+                                                    attempts++;
+                                                    WidgetsBinding.instance.addPostFrameCallback((_) => reapply());
+                                                  }
+                                                }
+                                                WidgetsBinding.instance.addPostFrameCallback((_) => reapply());
+                                              },
+                                              isToday: isThisWeek &&
+                                                  days[c].year == now.year &&
+                                                  days[c].month == now.month &&
+                                                  days[c].day == now.day &&
+                                                  (now.hour * 2 +
+                                                          (now.minute >= 30
+                                                              ? 1
+                                                              : 0)) ==
+                                                      row,
+                                              nowFraction: (isThisWeek &&
+                                                      days[c].year ==
+                                                          now.year &&
+                                                      days[c].month ==
+                                                          now.month &&
+                                                      days[c].day == now.day &&
+                                                      (now.hour * 2 +
+                                                              (now.minute >=
+                                                                      30
+                                                                  ? 1
+                                                                  : 0)) ==
+                                                          row)
+                                                  ? (((now.minute % 30) * 60 +
+                                                          now.second) /
+                                                      (30 * 60))
+                                                  : null,
+                                              isMine: (slot) => appUser !=
+                                                      null &&
+                                                  slot.containsUser(
+                                                      appUser.uid),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _WeekCell extends StatelessWidget {
+  const _WeekCell({
+    required this.start,
+    required this.lookup,
+    required this.width,
+    required this.height,
+    required this.onTap,
+    required this.isToday,
+    this.nowFraction,
+    required this.isMine,
+  });
+
+  final DateTime start;
+  final Map<String, TimeSlot> lookup;
+  final double width;
+  final double height;
+  final void Function(TimeSlot slot) onTap;
+  final bool isToday;
+  // 0..1 within the 30-minute slot, null if not current slot
+  final double? nowFraction;
+  final bool Function(TimeSlot slot) isMine;
+
+  @override
+  Widget build(BuildContext context) {
+    final id = TimeSlot.buildId(start);
+    final slot = lookup[id] ?? TimeSlot(
+      id: id,
+      start: start,
+      end: start.add(const Duration(minutes: 30)),
+      capacity: 10,
+      participants: const [],
+      participantIds: const [],
+      updatedAt: DateTimeUtils.nowInPrague,
+    );
+
+    final names = slot.participants.map((p) => p.fullName).toList();
+    final display = names.take(3).join(', ');
+    final extra = names.length > 3 ? ' +${names.length - 3}' : '';
+
+    final mine = isMine(slot);
+
+    return InkWell(
+      onTap: slot.isPast ? null : () => onTap(slot),
+      child: Container(
+        width: width,
+        height: height,
+        decoration: BoxDecoration(
+          border: Border(
+            right: BorderSide(
+              color: Theme.of(context).dividerColor,
+            ),
+            bottom: BorderSide(
+              color: Theme.of(context).dividerColor,
+            ),
+          ),
+          color: isToday
+              ? Theme.of(context).colorScheme.secondaryContainer
+              : null,
+        ),
+        padding: const EdgeInsets.all(8),
+        child: Stack(
+          children: [
+            Align(
+              alignment: Alignment.topLeft,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (mine)
+                    Container(
+                      width: 6,
+                      height: 20,
+                      margin: const EdgeInsets.only(right: 6, top: 2),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primary,
+                        borderRadius: BorderRadius.circular(3),
+                      ),
+                    ),
+                  Expanded(
+                    child: Text(
+                      names.isEmpty ? '' : '$display$extra',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -684,6 +1276,75 @@ class _CalendarWeekSelector extends ConsumerWidget {
                 child: Column(
                   children: [
                     Text(dateFormat.format(day)),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MonthWeeksSelector extends ConsumerWidget {
+  const _MonthWeeksSelector({
+    required this.focusDay,
+  });
+
+  final DateTime focusDay;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final monthStart = DateTime(focusDay.year, focusDay.month, 1);
+    final monthEnd = DateTime(focusDay.year, focusDay.month + 1, 1)
+        .subtract(const Duration(days: 1));
+
+    // Find Monday on/before monthStart
+    final firstWeekStart = monthStart.subtract(
+      Duration(days: (monthStart.weekday - 1)),
+    );
+
+    // Collect week starts intersecting the month
+    final List<DateTime> weekStarts = [];
+    var w = firstWeekStart;
+    while (!w.isAfter(monthEnd)) {
+      weekStarts.add(w);
+      w = w.add(const Duration(days: 7));
+    }
+
+    bool isFocusInWeek(DateTime weekStart) {
+      final weekEnd = weekStart.add(const Duration(days: 6));
+      return !focusDay.isBefore(weekStart) && !focusDay.isAfter(weekEnd);
+    }
+
+    String labelFor(DateTime weekStart) {
+      final weekEnd = weekStart.add(const Duration(days: 6));
+      final startInMonth = weekStart.isBefore(monthStart) ? monthStart : weekStart;
+      final endInMonth = weekEnd.isAfter(monthEnd) ? monthEnd : weekEnd;
+      return '${startInMonth.day}.–${endInMonth.day}.';
+    }
+
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: ToggleButtons(
+          isSelected: weekStarts.map(isFocusInWeek).toList(),
+          onPressed: (index) {
+            final weekStart = weekStarts[index];
+            ref
+                .read(calendarFocusDayProvider.notifier)
+                .setFocusDay(weekStart);
+          },
+          borderRadius: BorderRadius.circular(12),
+          children: [
+            for (final ws in weekStarts)
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Column(
+                  children: [
+                    Text(labelFor(ws)),
                   ],
                 ),
               ),
