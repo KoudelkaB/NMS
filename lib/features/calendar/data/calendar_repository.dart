@@ -3,7 +3,6 @@ import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
-import '../../../core/utils/date_time_utils.dart';
 import '../../auth/data/app_user.dart';
 import 'time_slot.dart';
 
@@ -39,10 +38,13 @@ class CalendarRepository {
   }
 
   Future<List<TimeSlot>> _fetchSlots(DateTime from, DateTime to) async {
+    // Convert bounds to UTC and compare on documentId (ISO-8601 UTC string)
+    final fromId = from.toUtc().toIso8601String();
+    final toId = to.toUtc().toIso8601String();
     final snapshot = await _slotsCollection
-        .where('start', isGreaterThanOrEqualTo: Timestamp.fromDate(from))
-        .where('start', isLessThan: Timestamp.fromDate(to))
-        .orderBy('start')
+        .where(FieldPath.documentId, isGreaterThanOrEqualTo: fromId)
+        .where(FieldPath.documentId, isLessThan: toId)
+        .orderBy(FieldPath.documentId)
         .get();
     return snapshot.docs.map(TimeSlot.fromDoc).toList();
   }
@@ -52,10 +54,12 @@ class CalendarRepository {
       // Workaround for Windows threading issue with Firestore snapshots
       return Stream.fromFuture(_fetchSlots(from, to)).asBroadcastStream();
     }
-    return _slotsCollection
-        .where('start', isGreaterThanOrEqualTo: Timestamp.fromDate(from))
-        .where('start', isLessThan: Timestamp.fromDate(to))
-        .orderBy('start')
+  final fromId = from.toUtc().toIso8601String();
+  final toId = to.toUtc().toIso8601String();
+  return _slotsCollection
+    .where(FieldPath.documentId, isGreaterThanOrEqualTo: fromId)
+    .where(FieldPath.documentId, isLessThan: toId)
+        .orderBy(FieldPath.documentId)
         .snapshots()
         .map((snapshot) => snapshot.docs.map(TimeSlot.fromDoc).toList());
   }
@@ -71,7 +75,7 @@ class CalendarRepository {
 
     // Only load slots that haven't ended yet to minimize Firestore reads
     // Slots end 30 minutes after start, so we filter by 'end' field
-    // final now = DateTimeUtils.nowInPrague;
+  // final now = DateTime.now();
 
     return _slotsCollection
         .where('participantIds', arrayContains: uid)
@@ -110,23 +114,23 @@ class CalendarRepository {
       start.day,
       start.hour,
       start.minute,
-    ); // local time is OK
+    ).toUtc(); // use UTC as canonical
 
     // Check if the slot has already ended (30 min after start)
     final slotEnd = normalizedStart.add(const Duration(minutes: 30));
-    if (slotEnd.isBefore(DateTimeUtils.nowInPrague)) {
+    if (slotEnd.isBefore(DateTime.now())) {
       throw StateError('Nelze upravovat časy, které již proběhly');
     }
 
     final operations = <_Operation>[];
 
-    final firstRef = _slotsCollection.doc(TimeSlot.buildId(normalizedStart));
+  final firstRef = _slotsCollection.doc(TimeSlot.buildId(normalizedStart));
     final firstSnapshot = await firstRef.get();
     final firstResult = _prepareToggleCommand(
       docRef: firstRef,
       snapshot: firstSnapshot,
       user: user,
-      slotStart: normalizedStart,
+  slotStart: normalizedStart,
       shouldJoin: null,
     );
 
@@ -136,7 +140,7 @@ class CalendarRepository {
 
     if (weeklyRecurring && firstResult.joined) {
       for (var i = 1; i <= max(1, recurringWeeks); i++) {
-        final nextStart = normalizedStart.add(Duration(days: 7 * i));
+  final nextStart = normalizedStart.add(Duration(days: 7 * i));
         final nextRef = _slotsCollection.doc(TimeSlot.buildId(nextStart));
         final nextSnapshot = await nextRef.get();
         final nextResult = _prepareToggleCommand(
@@ -155,7 +159,7 @@ class CalendarRepository {
 
     if (weeklyRecurring && !firstResult.joined) {
       for (var i = 1; i <= max(1, recurringWeeks); i++) {
-        final nextStart = normalizedStart.add(Duration(days: 7 * i));
+  final nextStart = normalizedStart.add(Duration(days: 7 * i));
         final nextRef = _slotsCollection.doc(TimeSlot.buildId(nextStart));
         final nextSnapshot = await nextRef.get();
         final nextResult = _prepareToggleCommand(
@@ -200,6 +204,7 @@ class CalendarRepository {
 
     final alreadyAssigned = slot.containsUser(user.uid);
     final join = shouldJoin ?? !alreadyAssigned;
+    final shouldDeleteEndField = snapshot.data()?.containsKey('end') ?? false;
 
     if (!join) {
       if (!alreadyAssigned) {
@@ -214,12 +219,11 @@ class CalendarRepository {
         operation: (
           docRef: docRef,
           data: {
-            'start': Timestamp.fromDate(slot.start),
-            'end': Timestamp.fromDate(slot.end),
-            'capacity': slot.capacity,
+            // Do not persist 'start' or 'capacity'; start is documentId and capacity is constant (10)
             'participants': updatedParticipants.map((p) => p.toMap()).toList(),
             'participantIds': updatedParticipants.map((p) => p.uid).toList(),
             'updatedAt': FieldValue.serverTimestamp(),
+            if (shouldDeleteEndField) 'end': FieldValue.delete(),
           }
         ),
       );
@@ -247,12 +251,11 @@ class CalendarRepository {
       operation: (
         docRef: docRef,
         data: {
-          'start': Timestamp.fromDate(slot.start),
-          'end': Timestamp.fromDate(slot.end),
-          'capacity': slot.capacity,
+          // Do not persist 'start' or 'capacity'; start is documentId and capacity is constant (10)
           'participants': updatedParticipants.map((p) => p.toMap()).toList(),
           'participantIds': updatedParticipants.map((p) => p.uid).toList(),
           'updatedAt': FieldValue.serverTimestamp(),
+          if (shouldDeleteEndField) 'end': FieldValue.delete(),
         }
       ),
     );
@@ -266,8 +269,8 @@ class CalendarRepository {
       final slotId = TimeSlot.buildId(slotStart);
       return TimeSlot(
         id: slotId,
-        start: slotStart,
-        end: slotStart.add(const Duration(minutes: 30)),
+        // Present local time in UI, even when canonical storage is UTC
+        start: slotStart.toLocal(),
         capacity: 10,
         participants: const [],
         participantIds: const [],

@@ -1,7 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:equatable/equatable.dart';
 
-import '../../../core/utils/date_time_utils.dart';
 
 class ParticipantSummary extends Equatable {
   const ParticipantSummary({
@@ -40,7 +39,6 @@ class TimeSlot extends Equatable {
   const TimeSlot({
     required this.id,
     required this.start,
-    required this.end,
     required this.capacity,
     required this.participants,
     required this.participantIds,
@@ -49,15 +47,16 @@ class TimeSlot extends Equatable {
 
   final String id;
   final DateTime start;
-  final DateTime end;
   final int capacity;
   final List<ParticipantSummary> participants;
   final List<String> participantIds;
   final DateTime updatedAt;
 
+  DateTime get end => start.add(const Duration(minutes: 30));
+
   bool get isFull => participants.length >= capacity;
 
-  bool get isPast => end.isBefore(DateTimeUtils.nowInPrague);
+  bool get isPast => end.isBefore(DateTime.now());
 
   bool containsUser(String uid) =>
       participants.any((participant) => participant.uid == uid);
@@ -70,7 +69,6 @@ class TimeSlot extends Equatable {
     return TimeSlot(
       id: id,
       start: start,
-      end: end,
       capacity: capacity,
       participants: participants ?? this.participants,
       participantIds: participantIds ?? this.participantIds,
@@ -79,20 +77,25 @@ class TimeSlot extends Equatable {
   }
 
   Map<String, dynamic> toMap() {
+    // Only persist mutable fields; 'start' is the document ID, capacity is constant (10)
     return {
-      'start': Timestamp.fromDate(start),
-      'end': Timestamp.fromDate(end),
-      'capacity': capacity,
       'participants': participants.map((e) => e.toMap()).toList(),
       'participantIds': participantIds,
-      'updatedAt': Timestamp.fromDate(updatedAt),
+      'updatedAt': Timestamp.fromDate(updatedAt.toUtc()),
     };
   }
 
   factory TimeSlot.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? {};
-    final timestamp = data['start'] as Timestamp?;
-    final endTimestamp = data['end'] as Timestamp?;
+    // Derive start from document ID (ISO8601 UTC string), fallback to 'start' field if present
+    DateTime startLocal;
+    try {
+      final parsed = DateTime.parse(doc.id);
+      startLocal = parsed.toLocal();
+    } catch (_) {
+      final ts = data['start'] as Timestamp?;
+      startLocal = (ts?.toDate() ?? DateTime.now()).toLocal();
+    }
     final participants =
         (data['participants'] as List<dynamic>? ?? []).map((participant) {
       return ParticipantSummary.fromMap(
@@ -105,16 +108,16 @@ class TimeSlot extends Equatable {
 
     return TimeSlot(
       id: doc.id,
-      start: timestamp?.toDate() ?? DateTime.now(),
-      end: endTimestamp?.toDate() ??
-          (timestamp?.toDate() ?? DateTime.now())
-              .add(const Duration(minutes: 30)),
-      capacity: (data['capacity'] as num?)?.toInt() ?? 10,
+  // Use local time for UI/logic; canonical time is encoded in doc ID as UTC
+  start: startLocal,
+  capacity: 10,
       participants: participants,
       participantIds: participantIds.isEmpty
           ? participants.map((participant) => participant.uid).toList()
           : participantIds,
-      updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      updatedAt:
+          ((data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now())
+              .toLocal(),
     );
   }
 
@@ -122,19 +125,7 @@ class TimeSlot extends Equatable {
     return start.toUtc().toIso8601String();
   }
 
-  static Map<String, dynamic> initialData(DateTime start, int capacity) {
-    final end = start.add(const Duration(minutes: 30));
-    return {
-      'start': Timestamp.fromDate(start),
-      'end': Timestamp.fromDate(end),
-      'capacity': capacity,
-      'participants': <Map<String, dynamic>>[],
-      'participantIds': <String>[],
-      'updatedAt': FieldValue.serverTimestamp(),
-    };
-  }
-
   @override
   List<Object?> get props =>
-      [id, start, end, capacity, participants, participantIds, updatedAt];
+      [id, start, capacity, participants, participantIds, updatedAt];
 }

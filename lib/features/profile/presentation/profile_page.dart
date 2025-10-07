@@ -93,6 +93,7 @@ class ProfilePage extends HookConsumerWidget {
               final formKey = useMemoized(() => GlobalKey<FormState>());
               final authRepository = ref.read(authRepositoryProvider);
               final isSaving = useState(false);
+              final cancelling = useState<Set<String>>({});
 
               // Get email from Firebase Auth as fallback (always available)
               final firebaseAuth = ref.read(firebaseAuthProvider);
@@ -298,6 +299,106 @@ class ProfilePage extends HookConsumerWidget {
                                           )
                                           .fullName,
                                     ),
+                                    trailing: cancelling.value.contains(slot.id)
+                                        ? const SizedBox(
+                                            height: 24,
+                                            width: 24,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : TextButton.icon(
+                                            icon: const Icon(
+                                              Icons.cancel_outlined,
+                                            ),
+                                            label: const Text('Zrušit'),
+                                            onPressed: () async {
+                                              // Show recurring checkbox only if the user has future weekly occurrences of this slot
+                                              final canCancelRecurring = upcomingSlots.any((other) {
+                                                if (other.start.isBefore(slot.start)) return false;
+                                                final days = other.start.difference(slot.start).inDays;
+                                                return days > 0 && days % 7 == 0 &&
+                                                    other.start.hour == slot.start.hour &&
+                                                    other.start.minute == slot.start.minute &&
+                                                    other.participants.any((p) => p.uid == user.uid);
+                                              });
+                                              // Confirm cancellation with optional weekly recurring
+                                              var recurring = false;
+                                              final confirm = await showDialog<bool>(
+                                                context: context,
+                                                builder: (dialogContext) {
+                                                  return StatefulBuilder(
+                                                    builder: (context, setState) {
+                                                      return AlertDialog(
+                                                        title: const Text('Zrušit účast?'),
+                                                        content: Column(
+                                                          mainAxisSize: MainAxisSize.min,
+                                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                                          children: [
+                                                            Text('Opravdu chcete opustit tento čas?'),
+                                                            if (canCancelRecurring) ...[
+                                                              const SizedBox(height: 16),
+                                                              CheckboxListTile(
+                                                                value: recurring,
+                                                                onChanged: (value) {
+                                                                  setState(() => recurring = value ?? false);
+                                                                },
+                                                                title: const Text('Zrušit všechny budoucí opakování'),
+                                                                subtitle: const Text('Zruší se rezervace na dalších 12 týdnů'),
+                                                              ),
+                                                            ],
+                                                          ],
+                                                        ),
+                                                        actions: [
+                                                          TextButton(
+                                                            onPressed: () => Navigator.of(context).pop(false),
+                                                            child: const Text('Zpět'),
+                                                          ),
+                                                          FilledButton(
+                                                            onPressed: () => Navigator.of(context).pop(true),
+                                                            child: const Text('Odhlásit se'),
+                                                          ),
+                                                        ],
+                                                      );
+                                                    },
+                                                  );
+                                                },
+                                              );
+
+                                              if (confirm != true) return;
+
+                                              // Execute cancellation
+                                              final set = {...cancelling.value}..add(slot.id);
+                                              cancelling.value = set;
+                                              try {
+                                                final bookingAction = ref.read(bookingActionProvider);
+                                                await bookingAction.toggleSlot(
+                                                  slot.start,
+                                                  weeklyRecurring: canCancelRecurring && recurring,
+                                                );
+                                                if (!context.mounted) return;
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(
+                                                    content: Text(
+                                                      (canCancelRecurring && recurring)
+                                                          ? 'Účast byla zrušena včetně všech budoucích opakování.'
+                                                          : 'Účast byla zrušena.',
+                                                    ),
+                                                  ),
+                                                );
+                                              } catch (error) {
+                                                if (!context.mounted) return;
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(
+                                                    content: Text('Akci se nepodařilo dokončit: $error'),
+                                                  ),
+                                                );
+                                              } finally {
+                                                final set2 = {...cancelling.value}..remove(slot.id);
+                                                cancelling.value = set2;
+                                              }
+                                            },
+                                          ),
                                   ),
                                 ),
                             ],

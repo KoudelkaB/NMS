@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
-import '../../../core/utils/date_time_utils.dart';
 import '../../auth/application/auth_providers.dart';
 import '../../auth/data/app_user.dart';
 import '../data/calendar_repository.dart';
@@ -38,7 +37,7 @@ final calendarFocusDayProvider =
 class CalendarFocusDayNotifier extends Notifier<DateTime> {
   @override
   DateTime build() {
-    final now = DateTimeUtils.nowInPrague;
+    final now = DateTime.now();
     return DateTime(now.year, now.month, now.day);
   }
 

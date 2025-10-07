@@ -9,8 +9,6 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart';
-import 'package:timezone/data/latest_all.dart' as tz;
-import 'package:timezone/timezone.dart' as tz;
 
 import 'app.dart';
 import 'firebase_options.dart';
@@ -66,9 +64,7 @@ Future<void> main() async {
         );
       }
 
-      // Set timezone to Czech Republic
-      tz.initializeTimeZones();
-      tz.setLocalLocation(tz.getLocation('Europe/Prague'));
+  // Use device timezone; no explicit override
 
       // Set locale to Czech
       Intl.defaultLocale = 'cs_CZ';

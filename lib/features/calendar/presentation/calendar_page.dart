@@ -7,7 +7,6 @@ import 'package:go_router/go_router.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:intl/intl.dart';
 
-import '../../../core/utils/date_time_utils.dart';
 import '../../../core/widgets/async_value_widget.dart';
 import '../../auth/application/auth_providers.dart';
 import '../../auth/application/auth_controllers.dart';
@@ -49,14 +48,14 @@ class CalendarPage extends HookConsumerWidget {
     final firstOpen = useRef<bool>(true);
   // Inactivity tracking
     final inactivityTick = useState(0);
-    final lastUserActivity = useRef<DateTime>(DateTimeUtils.nowInPrague);
+  final lastUserActivity = useRef<DateTime>(DateTime.now());
   // Force rebuild on time changes (e.g., 30-minute boundaries)
   final timeTick = useState(0);
   // Track horizontal drag delta for day swipe navigation
   final horizontalDragDx = useRef<double>(0);
 
   final selectedDate = focusDay;
-    final now = DateTimeUtils.nowInPrague;
+  final now = DateTime.now();
     final isToday = selectedDate.year == now.year &&
         selectedDate.month == now.month &&
         selectedDate.day == now.day;
@@ -160,7 +159,7 @@ class CalendarPage extends HookConsumerWidget {
     // Track user activity and remember top-visible slot (robust for variable heights)
     useEffect(() {
       void onScroll() {
-        lastUserActivity.value = DateTimeUtils.nowInPrague;
+  lastUserActivity.value = DateTime.now();
         if (!scrollController.hasClients) return;
         final pos = scrollController.position;
         final currentOffset = pos.pixels;
@@ -189,7 +188,7 @@ class CalendarPage extends HookConsumerWidget {
         final lifecycleListener = AppLifecycleListener(
           onResume: () {
             // Check if the time slot has changed since last scroll
-            final now = DateTimeUtils.nowInPrague;
+            final now = DateTime.now();
             final newSlotIndex = now.hour * 2 + (now.minute >= 30 ? 1 : 0);
 
             if (lastScrolledSlotIndex.value != newSlotIndex) {
@@ -263,7 +262,7 @@ class CalendarPage extends HookConsumerWidget {
             const Duration(minutes: 1),
             () {
               final last = lastUserActivity.value;
-              final now = DateTimeUtils.nowInPrague;
+              final now = DateTime.now();
               if (now.difference(last) >= const Duration(minutes: 1)) {
                 if (isToday) {
                   // Already viewing today: just refocus to current slot
@@ -274,7 +273,7 @@ class CalendarPage extends HookConsumerWidget {
                   todayScrollTrigger.value++;
                   ref
                       .read(calendarFocusDayProvider.notifier)
-                      .setFocusDay(DateTimeUtils.nowInPrague);
+                      .setFocusDay(DateTime.now());
                 }
               }
               schedule();
@@ -295,7 +294,7 @@ class CalendarPage extends HookConsumerWidget {
         Timer? timer;
 
         void scheduleNextScroll() {
-          final now = DateTimeUtils.nowInPrague;
+          final now = DateTime.now();
           final nextSlotTime = DateTime(
             now.year,
             now.month,
@@ -309,7 +308,7 @@ class CalendarPage extends HookConsumerWidget {
           timer = Timer(
             duration,
             () {
-              final currentNow = DateTimeUtils.nowInPrague;
+              final currentNow = DateTime.now();
               final viewingToday =
                   focusDay.year == currentNow.year &&
                   focusDay.month == currentNow.month &&
@@ -550,13 +549,10 @@ class CalendarPage extends HookConsumerWidget {
                                       TimeSlot(
                                         id: slotId,
                                         start: slotStart,
-                                        end: slotStart
-                                            .add(const Duration(minutes: 30)),
                                         capacity: 10,
                                         participants: const [],
                                         participantIds: const [],
-                                        updatedAt:
-                                            DateTimeUtils.nowInPrague,
+                    updatedAt: DateTime.now(),
                                       );
                                   final highlight = isToday &&
                                       index == currentSlotIndex;
@@ -608,7 +604,7 @@ class CalendarPage extends HookConsumerWidget {
       floatingActionButton: firebaseUser != null && firebaseUser.emailVerified
           ? FloatingActionButton.extended(
               onPressed: () {
-                final now = DateTimeUtils.nowInPrague;
+                final now = DateTime.now();
                 final wasAlreadyToday = isToday;
                 // Always set focus to today
                 ref
@@ -675,6 +671,17 @@ Future<void> _onSlotTapped(
     final bookingAction = ref.read(bookingActionProvider);
     final isAssigned = slot.containsUser(bookingAction.user.uid);
     var recurring = false;
+    // Determine if the user has future weekly occurrences of this slot time
+    final assignmentsAsync =
+        ref.read(userAssignmentsProvider(bookingAction.user.uid));
+    final assignments = assignmentsAsync.value ?? const <TimeSlot>[];
+    final canCancelRecurring = isAssigned && assignments.any((other) {
+      if (other.start.isBefore(slot.start)) return false;
+      final days = other.start.difference(slot.start).inDays;
+      return days > 0 && days % 7 == 0 &&
+          other.start.hour == slot.start.hour &&
+          other.start.minute == slot.start.minute;
+    });
 
     final confirm = await showDialog<bool>(
       context: context,
@@ -708,7 +715,7 @@ Future<void> _onSlotTapped(
                         'Rezervace se vytvoří na dalších 12 týdnů',
                       ),
                     ),
-                  ] else ...[
+                  ] else if (canCancelRecurring) ...[
                     const SizedBox(height: 16),
                     CheckboxListTile(
                       value: recurring,
@@ -746,14 +753,14 @@ Future<void> _onSlotTapped(
     try {
       await bookingAction.toggleSlot(
         slot.start,
-        weeklyRecurring: recurring,
+        weeklyRecurring: isAssigned ? (canCancelRecurring && recurring) : recurring,
       );
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            isAssigned
-                ? recurring
+      isAssigned
+        ? (canCancelRecurring && recurring)
                     ? 'Účast byla zrušena včetně všech budoucích opakování.'
                     : 'Účast byla zrušena.'
                 : recurring
@@ -807,7 +814,7 @@ class _WeekGrid extends HookConsumerWidget {
 
   final days = List.generate(7, (i) => weekStart.add(Duration(days: i)));
   final rowCount = 48;
-  final now = DateTimeUtils.nowInPrague;
+  final now = DateTime.now();
   final isThisWeek =
     now.isAfter(weekStart.subtract(const Duration(days: 1))) &&
       now.isBefore(weekStart.add(const Duration(days: 8)));
@@ -1170,11 +1177,10 @@ class _WeekCell extends StatelessWidget {
     final slot = lookup[id] ?? TimeSlot(
       id: id,
       start: start,
-      end: start.add(const Duration(minutes: 30)),
       capacity: 10,
       participants: const [],
       participantIds: const [],
-      updatedAt: DateTimeUtils.nowInPrague,
+  updatedAt: DateTime.now(),
     );
 
     final names = slot.participants.map((p) => p.fullName).toList();
