@@ -1,0 +1,32 @@
+name: Deploy Flutter Wasm to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main  # Změňte, pokud používáte jinou hlavní větev (např. master)
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Checkout kódu
+      - uses: actions/checkout@v4
+
+      # 2. Nastavení Flutter SDK
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable' # Můžete zvolit 'beta' nebo 'stable'
+
+      # 3. Získání závislostí
+      - run: flutter pub get
+
+      # 4. Sestavení Flutter Wasm
+      - run: flutter build web --wasm --base-href /${{ github.event.repository.name }}/
+
+      # 5. Nasazení na gh-pages větev
+      - uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./build/web
+          # Tím zajistíte, že nasazení proběhne do speciální 'gh-pages' větve
+          publish_branch: gh-pages
