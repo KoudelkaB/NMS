@@ -43,51 +43,54 @@ class TimeSlotTile extends StatelessWidget {
           padding: const EdgeInsets.all(16),
           child: Row(
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '${timeFormat.format(slot.start)} - ${timeFormat.format(slot.end)}',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          decoration:
-                              isPast ? TextDecoration.lineThrough : null,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${timeFormat.format(slot.start)} - ${timeFormat.format(slot.end)}',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            decoration:
+                                isPast ? TextDecoration.lineThrough : null,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      names.isEmpty
+                          ? 'Volné místo'
+                          : hasExtra
+                              ? '$displayNames +${names.length - 3}'
+                              : displayNames,
+                      softWrap: true,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    if (isPast)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          'Proběhlý čas',
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurface
+                                    .withValues(alpha: 0.6),
+                              ),
                         ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    names.isEmpty
-                        ? 'Volné místo'
-                        : hasExtra
-                            ? '$displayNames +${names.length - 3}'
-                            : displayNames,
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  if (isPast)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Text(
-                        'Proběhlý čas',
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurface
-                                  .withValues(alpha: 0.6),
-                            ),
                       ),
-                    ),
-                  if (isMine && !isPast)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Text(
-                        'Jste přihlášeni v tomto čase',
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
+                    if (isMine && !isPast)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          'Jste přihlášeni v tomto čase',
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                        ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
-              const Spacer(),
+              const SizedBox(width: 12),
               Column(
                 children: [
                   Icon(

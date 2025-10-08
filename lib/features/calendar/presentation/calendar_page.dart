@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -819,21 +820,43 @@ class _WeekGrid extends HookConsumerWidget {
     now.isAfter(weekStart.subtract(const Duration(days: 1))) &&
       now.isBefore(weekStart.add(const Duration(days: 8)));
 
-    // Sync header horizontal scroll with body horizontal scroll
+    // Sync header and body horizontal scroll in both directions
     useEffect(() {
       void onGridScroll() {
         if (!headerHorizontalController.hasClients ||
             !gridHorizontalController.hasClients) return;
-        final pos = gridHorizontalController.position.pixels;
-        if ((headerHorizontalController.position.pixels - pos).abs() > 0.5) {
-          headerHorizontalController.jumpTo(pos);
+        final gridPos = gridHorizontalController.position.pixels;
+        final headerPos = headerHorizontalController.position.pixels;
+        if ((headerPos - gridPos).abs() > 0.5) {
+          headerHorizontalController.jumpTo(gridPos);
+        }
+      }
+      void onHeaderScroll() {
+        if (!headerHorizontalController.hasClients ||
+            !gridHorizontalController.hasClients) return;
+        final gridPos = gridHorizontalController.position.pixels;
+        final headerPos = headerHorizontalController.position.pixels;
+        if ((gridPos - headerPos).abs() > 0.5) {
+          gridHorizontalController.jumpTo(headerPos);
         }
       }
       gridHorizontalController.addListener(onGridScroll);
-      return () => gridHorizontalController.removeListener(onGridScroll);
+      headerHorizontalController.addListener(onHeaderScroll);
+      return () {
+        gridHorizontalController.removeListener(onGridScroll);
+        headerHorizontalController.removeListener(onHeaderScroll);
+      };
     }, [gridHorizontalController, headerHorizontalController]);
 
-    return AsyncValueWidget<List<TimeSlot>>(
+    // Allow mouse drag scrolling for all nested scrollables in the week grid
+    return ScrollConfiguration(
+      behavior: const MaterialScrollBehavior().copyWith(
+        dragDevices: {
+          PointerDeviceKind.touch,
+          PointerDeviceKind.mouse,
+        },
+      ),
+      child: AsyncValueWidget<List<TimeSlot>>(
       value: slotsAsync,
       builder: (slots) {
         // Map by start to quick lookup
@@ -1145,11 +1168,12 @@ class _WeekGrid extends HookConsumerWidget {
           ],
         );
       },
+    ),
     );
   }
 }
 
-class _WeekCell extends StatelessWidget {
+class _WeekCell extends StatefulWidget {
   const _WeekCell({
     required this.start,
     required this.lookup,
@@ -1172,28 +1196,34 @@ class _WeekCell extends StatelessWidget {
   final bool Function(TimeSlot slot) isMine;
 
   @override
+  State<_WeekCell> createState() => _WeekCellState();
+}
+
+class _WeekCellState extends State<_WeekCell> {
+  @override
   Widget build(BuildContext context) {
-    final id = TimeSlot.buildId(start);
-    final slot = lookup[id] ?? TimeSlot(
+    final id = TimeSlot.buildId(widget.start);
+  final slot = widget.lookup[id] ?? TimeSlot(
       id: id,
-      start: start,
+      start: widget.start,
       capacity: 10,
       participants: const [],
       participantIds: const [],
   updatedAt: DateTime.now(),
     );
 
-    final names = slot.participants.map((p) => p.fullName).toList();
-    final display = names.take(3).join(', ');
-    final extra = names.length > 3 ? ' +${names.length - 3}' : '';
+  final names = slot.participants.map((p) => p.fullName).toList();
+  // Show each participant on its own line in week view; cap to 3 lines and add +N indicator
+  final maxLines = 3;
+  final visibleNames = names.take(maxLines).toList();
+  final remaining = names.length - visibleNames.length;
 
-    final mine = isMine(slot);
+  final mine = widget.isMine(slot);
 
-    return InkWell(
-      onTap: slot.isPast ? null : () => onTap(slot),
-      child: Container(
-        width: width,
-        height: height,
+  final tooltip = names.isEmpty ? null : names.join('\n');
+  final cell = Container(
+    width: widget.width,
+    height: widget.height,
         decoration: BoxDecoration(
           border: Border(
             right: BorderSide(
@@ -1203,11 +1233,13 @@ class _WeekCell extends StatelessWidget {
               color: Theme.of(context).dividerColor,
             ),
           ),
-          color: isToday
-              ? Theme.of(context).colorScheme.secondaryContainer
-              : null,
+          color: slot.isPast
+              ? Theme.of(context).colorScheme.surfaceContainerHighest
+              : (widget.isToday
+                  ? Theme.of(context).colorScheme.secondaryContainer
+                  : null),
         ),
-        padding: const EdgeInsets.all(8),
+  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
         child: Stack(
           children: [
             Align(
@@ -1226,20 +1258,69 @@ class _WeekCell extends StatelessWidget {
                       ),
                     ),
                   Expanded(
-                    child: Text(
-                      names.isEmpty ? '' : '$display$extra',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
+                    child: names.isEmpty
+                        ? const SizedBox.shrink()
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              for (var i = 0; i < visibleNames.length; i++)
+                                () {
+                                  final baseStyle = Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(height: 1.2);
+                                  final isLast = i == visibleNames.length - 1 && remaining > 0;
+                                  if (!isLast) {
+                                    return Text(
+                                      visibleNames[i],
+                                      overflow: TextOverflow.ellipsis,
+                                      maxLines: 1,
+                                      style: baseStyle,
+                                    );
+                                  }
+                                  return RichText(
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    text: TextSpan(
+                                      children: [
+                                        TextSpan(text: visibleNames[i], style: baseStyle),
+                                        TextSpan(
+                                          text: ' +$remaining',
+                                          style: baseStyle?.copyWith(
+                                            color: Theme.of(context).colorScheme.error,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }(),
+                            ],
+                          ),
                   ),
                 ],
               ),
             ),
           ],
         ),
-      ),
+      );
+
+    // Simpler tap handling: plain GestureDetector; past slots remain disabled
+    final tappable = GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: slot.isPast ? null : () => widget.onTap(slot),
+      // Consume long press when tooltip is not shown (empty cell) so it doesn't trigger a tap
+      onLongPress: tooltip == null ? () {} : null,
+      child: cell,
     );
+
+    return tooltip == null
+        ? tappable
+        : Tooltip(
+            message: tooltip,
+            waitDuration: const Duration(milliseconds: 300),
+            child: tappable,
+          );
   }
 }
 
