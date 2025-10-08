@@ -15,7 +15,7 @@ class CalendarRepository {
       _firestore.collection('timeSlots');
 
   Future<List<TimeSlot>> _fetchUserAssignments(
-      String uid, DateTime? from) async {
+      String uid, DateTime? from,) async {
     final snapshot = await _slotsCollection
         .where('participantIds', arrayContains: uid)
         .get();

@@ -66,7 +66,7 @@ class CalendarPage extends HookConsumerWidget {
     // Keep stable keys for each slot to compute precise offsets with variable heights
     final itemKeys = useMemoized(() => List.generate(48, (_) => GlobalKey()), const []);
 
-    double? _topOffsetForIndex(int index) {
+    double? topOffsetForIndex(int index) {
       if (index < 0 || index > 47) return null;
       final ctx = itemKeys[index].currentContext;
       if (ctx == null) return null;
@@ -102,7 +102,7 @@ class CalendarPage extends HookConsumerWidget {
 
         // Phase 2: precise adjust once child is laid out
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          final precise = _topOffsetForIndex(targetIndex);
+          final precise = topOffsetForIndex(targetIndex);
           if (precise == null) {
             if (attempts < 30) {
               attempts++;
@@ -125,7 +125,7 @@ class CalendarPage extends HookConsumerWidget {
           int stabilizations = 0;
           void stabilize() {
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              final p = _topOffsetForIndex(targetIndex);
+              final p = topOffsetForIndex(targetIndex);
               if (p != null) {
                 final c = p.clamp(0.0, position.maxScrollExtent);
                 scrollController.jumpTo(c);
@@ -167,7 +167,7 @@ class CalendarPage extends HookConsumerWidget {
         int bestIndex = 0;
         double bestOffset = -double.infinity;
         for (var i = 0; i < 48; i++) {
-          final off = _topOffsetForIndex(i);
+          final off = topOffsetForIndex(i);
           if (off == null) continue;
           if (off <= currentOffset + 1 && off > bestOffset) {
             bestOffset = off;
@@ -179,7 +179,7 @@ class CalendarPage extends HookConsumerWidget {
 
       scrollController.addListener(onScroll);
       return () => scrollController.removeListener(onScroll);
-    }, [scrollController]);
+    }, [scrollController],);
 
     // Detect app lifecycle changes (when user returns to the app)
     useEffect(
@@ -351,7 +351,7 @@ class CalendarPage extends HookConsumerWidget {
             onPressed: () => isWeekView.value = !isWeekView.value,
             icon: Icon(isWeekView.value
                 ? Icons.view_day_outlined
-                : Icons.view_week_outlined),
+                : Icons.view_week_outlined,),
             tooltip:
                 isWeekView.value ? 'Zobrazit denní seznam' : 'Zobrazit týden',
           ),
@@ -808,7 +808,7 @@ class _WeekGrid extends HookConsumerWidget {
         tick.value++;
       });
       return timer.cancel;
-    }, const []);
+    }, const [],);
     final weekStart = ref.watch(calendarWeekStartProvider);
     final slotsAsync = ref.watch(weekSlotsProvider);
     final appUser = ref.watch(currentAppUserProvider);
@@ -824,7 +824,9 @@ class _WeekGrid extends HookConsumerWidget {
     useEffect(() {
       void onGridScroll() {
         if (!headerHorizontalController.hasClients ||
-            !gridHorizontalController.hasClients) return;
+            !gridHorizontalController.hasClients) {
+          return;
+        }
         final gridPos = gridHorizontalController.position.pixels;
         final headerPos = headerHorizontalController.position.pixels;
         if ((headerPos - gridPos).abs() > 0.5) {
@@ -833,7 +835,9 @@ class _WeekGrid extends HookConsumerWidget {
       }
       void onHeaderScroll() {
         if (!headerHorizontalController.hasClients ||
-            !gridHorizontalController.hasClients) return;
+            !gridHorizontalController.hasClients) {
+          return;
+        }
         final gridPos = gridHorizontalController.position.pixels;
         final headerPos = headerHorizontalController.position.pixels;
         if ((gridPos - headerPos).abs() > 0.5) {
@@ -846,7 +850,7 @@ class _WeekGrid extends HookConsumerWidget {
         gridHorizontalController.removeListener(onGridScroll);
         headerHorizontalController.removeListener(onHeaderScroll);
       };
-    }, [gridHorizontalController, headerHorizontalController]);
+    }, [gridHorizontalController, headerHorizontalController],);
 
     // Allow mouse drag scrolling for all nested scrollables in the week grid
     return ScrollConfiguration(
@@ -920,7 +924,7 @@ class _WeekGrid extends HookConsumerWidget {
                                     ?.copyWith(color: fg),
                               ),
                             );
-                          }),
+                          },),
                       ],
                     ),
                   ),
@@ -1003,7 +1007,7 @@ class _WeekGrid extends HookConsumerWidget {
                                               weekStart.month,
                                               weekStart.day,
                                             ).add(
-                                                Duration(minutes: row * 30)),
+                                                Duration(minutes: row * 30),),
                                           ),
                                           style: () {
                                             // Use the background color for aura (blue-ish for current time row)
@@ -1047,7 +1051,7 @@ class _WeekGrid extends HookConsumerWidget {
                                     ],
                                   ),
                                 );
-                              }),
+                              },),
                           ],
                         ),
                       ),
@@ -1076,7 +1080,7 @@ class _WeekGrid extends HookConsumerWidget {
                                                 0,
                                                 0,
                                               ).add(
-                                                  Duration(minutes: row * 30)),
+                                                  Duration(minutes: row * 30),),
                                               lookup: byId,
                                               width: cellWidth,
                                               height: rowHeight,
@@ -1149,7 +1153,7 @@ class _WeekGrid extends HookConsumerWidget {
                                               isMine: (slot) => appUser !=
                                                       null &&
                                                   slot.containsUser(
-                                                      appUser.uid),
+                                                      appUser.uid,),
                                             ),
                                         ],
                                       ),
@@ -1341,32 +1345,40 @@ class _CalendarWeekSelector extends ConsumerWidget {
 
     return Padding(
       padding: const EdgeInsets.all(16),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: ToggleButtons(
-          isSelected: days
-              .map(
-                (day) => day.day == focusDay.day && day.month == focusDay.month,
-              )
-              .toList(),
-          onPressed: (index) {
-            ref
-                .read(calendarFocusDayProvider.notifier)
-                .setFocusDay(days[index]);
+      child: ScrollConfiguration(
+        behavior: const MaterialScrollBehavior().copyWith(
+          dragDevices: {
+            PointerDeviceKind.touch,
+            PointerDeviceKind.mouse,
           },
-          borderRadius: BorderRadius.circular(12),
-          children: [
-            for (final day in days)
-              Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Column(
-                  children: [
-                    Text(dateFormat.format(day)),
-                  ],
+        ),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: ToggleButtons(
+            isSelected: days
+                .map(
+                  (day) => day.day == focusDay.day && day.month == focusDay.month,
+                )
+                .toList(),
+            onPressed: (index) {
+              ref
+                  .read(calendarFocusDayProvider.notifier)
+                  .setFocusDay(days[index]);
+            },
+            borderRadius: BorderRadius.circular(12),
+            children: [
+              for (final day in days)
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Column(
+                    children: [
+                      Text(dateFormat.format(day)),
+                    ],
+                  ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -1413,29 +1425,37 @@ class _MonthWeeksSelector extends ConsumerWidget {
 
     return Padding(
       padding: const EdgeInsets.all(16),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: ToggleButtons(
-          isSelected: weekStarts.map(isFocusInWeek).toList(),
-          onPressed: (index) {
-            final weekStart = weekStarts[index];
-            ref
-                .read(calendarFocusDayProvider.notifier)
-                .setFocusDay(weekStart);
+      child: ScrollConfiguration(
+        behavior: const MaterialScrollBehavior().copyWith(
+          dragDevices: {
+            PointerDeviceKind.touch,
+            PointerDeviceKind.mouse,
           },
-          borderRadius: BorderRadius.circular(12),
-          children: [
-            for (final ws in weekStarts)
-              Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Column(
-                  children: [
-                    Text(labelFor(ws)),
-                  ],
+        ),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: ToggleButtons(
+            isSelected: weekStarts.map(isFocusInWeek).toList(),
+            onPressed: (index) {
+              final weekStart = weekStarts[index];
+              ref
+                  .read(calendarFocusDayProvider.notifier)
+                  .setFocusDay(weekStart);
+            },
+            borderRadius: BorderRadius.circular(12),
+            children: [
+              for (final ws in weekStarts)
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Column(
+                    children: [
+                      Text(labelFor(ws)),
+                    ],
+                  ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
